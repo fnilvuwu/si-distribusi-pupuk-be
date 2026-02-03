@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS users (
   created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS profil_petani (
+CREATE TABLE IF NOT EXISTS profile_petani (
   user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   nama_lengkap VARCHAR NOT NULL,
   nik VARCHAR(16) NOT NULL UNIQUE,
@@ -29,22 +29,15 @@ CREATE TABLE IF NOT EXISTS stok_pupuk (
 
 CREATE TABLE IF NOT EXISTS pengajuan_pupuk (
   id BIGSERIAL PRIMARY KEY,
-  petani_id BIGINT NOT NULL REFERENCES profil_petani(user_id) ON DELETE RESTRICT,
+  petani_id BIGINT NOT NULL REFERENCES profile_petani(user_id) ON DELETE RESTRICT,
   pupuk_id BIGINT NOT NULL REFERENCES stok_pupuk(id) ON DELETE RESTRICT,
   jumlah_diminta INTEGER NOT NULL,
   jumlah_disetujui INTEGER,
   status TEXT NOT NULL CHECK (status IN ('pending', 'terverifikasi', 'dijadwalkan', 'dikirim', 'selesai')),
-  alasan_pengajuan TEXT,
-  lokasi_penggunaan TEXT,
+  alasan TEXT,
   url_dokumen_pendukung TEXT,
   created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
-
--- Add new columns if they don't exist (for migration)
-ALTER TABLE pengajuan_pupuk ADD COLUMN IF NOT EXISTS lokasi_penggunaan TEXT;
-ALTER TABLE pengajuan_pupuk ADD COLUMN IF NOT EXISTS url_dokumen_pendukung TEXT;
--- Rename columns to Indonesian names if they exist with old names
-ALTER TABLE pengajuan_pupuk RENAME COLUMN alasan TO alasan_pengajuan;
 
 CREATE TABLE IF NOT EXISTS jadwal_distribusi_pupuk (
   id BIGSERIAL PRIMARY KEY,
@@ -56,7 +49,7 @@ CREATE TABLE IF NOT EXISTS jadwal_distribusi_pupuk (
 
 CREATE TABLE IF NOT EXISTS hasil_tani (
   id BIGSERIAL PRIMARY KEY,
-  petani_id BIGINT NOT NULL REFERENCES profil_petani(user_id) ON DELETE RESTRICT,
+  petani_id BIGINT NOT NULL REFERENCES profile_petani(user_id) ON DELETE RESTRICT,
   jenis_tanaman TEXT NOT NULL,
   jumlah_hasil INTEGER NOT NULL,
   satuan TEXT NOT NULL,

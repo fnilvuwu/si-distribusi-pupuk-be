@@ -12,7 +12,6 @@ htmlcov/
 
 # Local data / dev artifacts
 dev.db
-uploads/
 
 # Environment variables
 .env
@@ -22,3 +21,5 @@ uploads/
 .DS_Store
 .vscode/
 .idea/
+.vercel
+.env*.local

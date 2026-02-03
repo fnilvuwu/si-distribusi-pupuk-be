@@ -13,6 +13,7 @@ from db.db_base import close_all_connections, init_connection_pool
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Initializing database connection pool...")
@@ -21,6 +22,7 @@ async def lifespan(app: FastAPI):
     yield
     logger.info("Closing database connections...")
     close_all_connections()
+
 
 app = FastAPI(
     title="SIPUPUK API",
@@ -33,7 +35,7 @@ app = FastAPI(
         {"name": "Distributor", "description": "Distributor routes"},
         {"name": "Admin", "description": "Admin routes"},
         {"name": "Super Admin", "description": "Super Admin routes"},
-    ]
+    ],
 )
 
 # CORS configuration - restrict in production
@@ -52,11 +54,17 @@ app.add_middleware(
 
 app.include_router(api_router)
 
-# Serve uploaded files (dev/local)
-Path("uploads").mkdir(parents=True, exist_ok=True)
-UPLOAD_DIR = Path("uploads")
+# Serve uploaded files
+# In serverless/production environments, use /tmp (read-write allowed)
+# In development, use local uploads directory
+if os.getenv("ENVIRONMENT") == "production" or os.getenv("VERCEL"):
+    UPLOAD_DIR = Path("/tmp/uploads")
+else:
+    UPLOAD_DIR = Path("uploads")
+
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
 
 @app.get("/health")
 def health_check() -> dict:
     return {"status": "ok"}
-

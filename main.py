@@ -39,11 +39,7 @@ app = FastAPI(
 )
 
 # CORS configuration - restrict in production
-CORS_ORIGINS = os.getenv(
-    "CORS_ORIGINS",
-    "http://localhost:5173",
-    "https://jti-si-distribusi-pupuk-fe.vercel.app",
-).split(",")
+CORS_ORIGINS = os.getenv("CORS_ORIGINS", "https://jti-si-distribusi-pupuk-fe.vercel.app").split(",")
 if os.getenv("ENVIRONMENT") == "production":
     # In production, MUST specify allowed origins explicitly
     logger.warning("CORS_ORIGINS in production: %s", CORS_ORIGINS)

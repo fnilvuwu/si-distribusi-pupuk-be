@@ -53,9 +53,11 @@ app.add_middleware(
 app.include_router(api_router)
 
 # Serve uploaded files (dev/local)
-Path("uploads").mkdir(parents=True, exist_ok=True)
-app.mount("/files", StaticFiles(directory="uploads"), name="files")
+# Path("uploads").mkdir(parents=True, exist_ok=True)
+# UPLOAD_DIR = Path("uploads")
 
+UPLOAD_DIR = Path("/tmp/uploads")
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 @app.get("/health")
 def health_check() -> dict:

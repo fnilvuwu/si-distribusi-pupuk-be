@@ -1,0 +1,24 @@
+# Virtual environments
+venv/
+.env/
+.venv/
+
+# Python cache / build artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage*
+htmlcov/
+
+# Local data / dev artifacts
+dev.db
+uploads/
+
+# Environment variables
+.env
+.env.example
+
+# OS / editor noise
+.DS_Store
+.vscode/
+.idea/

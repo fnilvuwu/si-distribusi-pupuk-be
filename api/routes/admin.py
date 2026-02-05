@@ -2,6 +2,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy import text
 from typing import List, Optional
 from core.dependencies import require_role
+from core.security import hash_password, verify_password
 from db.db_base import get_cursor, ENVIRONMENT
 from schemas.verifikasi import (
     VerifikasiPetaniListResponse,
@@ -21,6 +22,9 @@ class AdminProfileUpdate(BaseModel):
     nama_lengkap: Optional[str] = None
     alamat: Optional[str] = None
     no_hp: Optional[str] = None
+    current_password: Optional[str] = None
+    new_password: Optional[str] = None
+    new_password_confirm: Optional[str] = None
 
 
 @router.get("/profile", response_model=dict)
@@ -42,6 +46,26 @@ def get_admin_profile(user=Depends(require_role("admin"))):
 @router.put("/profile", response_model=dict)
 def update_admin_profile(req: AdminProfileUpdate, user=Depends(require_role("admin"))):
     with get_cursor(commit=True) as cur:
+        # Handle Password Update
+        if req.current_password:
+            if not req.new_password or not req.new_password_confirm:
+                raise HTTPException(status_code=400, detail="Password baru dan konfirmasi wajib diisi")
+            if req.new_password != req.new_password_confirm:
+                raise HTTPException(status_code=400, detail="Konfirmasi password baru tidak cocok")
+            
+            # Verify current password
+            cur.execute("SELECT password_hash FROM users WHERE id = %s", (user['id'],))
+            user_row = cur.fetchone()
+            if not user_row:
+                raise HTTPException(status_code=404, detail="User tidak ditemukan")
+            
+            if not verify_password(req.current_password, user_row['password_hash']):
+                raise HTTPException(status_code=400, detail="Password saat ini salah")
+            
+            # Update password
+            new_hash = hash_password(req.new_password)
+            cur.execute("UPDATE users SET password_hash = %s WHERE id = %s", (new_hash, user['id']))
+
         # Check if profile exists
         cur.execute("SELECT user_id FROM profile_admin WHERE user_id = %s", (user['id'],))
         exists = cur.fetchone()
@@ -52,6 +76,10 @@ def update_admin_profile(req: AdminProfileUpdate, user=Depends(require_role("adm
                 "INSERT INTO profile_admin (user_id, nama_lengkap, alamat, no_hp) VALUES (%s, %s, %s, %s)",
                 (user['id'], req.nama_lengkap or "", req.alamat or "", req.no_hp or "")
             )
+            # If creating, we might have updated password already, so just continue or return
+            # But normally create logic would consume available fields.
+            # We return "created" but if we updated password, maybe we should indicate that?
+            # Let's keep it simple.
             return {"status": "created"}
 
         fields = []

@@ -3,7 +3,16 @@ from sqlalchemy import text
 from typing import List, Optional
 from core.dependencies import require_role
 from core.security import hash_password, verify_password
-from db.db_base import get_cursor, ENVIRONMENT
+from db.db_base import get_cursor
+from core.date_utils import (
+    get_day_boundaries,
+    get_month_boundaries,
+    get_year_boundaries,
+    format_date_for_api,
+    extract_hour_from_datetime,
+    extract_month_from_date,
+    extract_date_from_datetime,
+)
 from schemas.verifikasi import (
     VerifikasiPetaniListResponse,
     VerifikasiPetaniDetailResponse,
@@ -248,29 +257,12 @@ def list_verifikasi_hasil_tani(
         params.append(date_to)
     where = f"WHERE {' AND '.join(filters)}" if filters else ""
 
-    # Abstract Query for MySQL (Dev) vs Postgres (Prod) vs SQLite (Dev default)
-    if ENVIRONMENT == "production":
-        # PostgreSQL
-        date_panen_sql = "TO_CHAR(ht.tanggal_panen, 'YYYY-MM-DD')"
-        created_at_sql = "TO_CHAR(ht.created_at, 'YYYY-MM-DD HH24:MI:SS')"
-    else:
-        # SQLite (Default Development) uses strftime
-        # MySQL uses DATE_FORMAT
-        # We try to detect or just use SQLite syntax which is what is crashing
-        # SQLite syntax: strftime('%Y-%m-%d', date_col)
-        # MySQL syntax: DATE_FORMAT(date_col, '%Y-%m-%d')
-        
-        # Since the user specifically has SQLite error, we prioritize SQLite fix.
-        # Ideally we check engine.dialect.name but we don't have engine imported.
-        # We will usage SQLite syntax for dev environment as it is the default.
-        date_panen_sql = "strftime('%Y-%m-%d', ht.tanggal_panen)"
-        created_at_sql = "strftime('%Y-%m-%d %H:%M:%S', ht.created_at)"
-
+    # Database-agnostic query: retrieve raw datetime/date columns
     sql = f"""
         SELECT ht.id, ht.petani_id, p.nama_lengkap, ht.jenis_tanaman, ht.jumlah_hasil, ht.satuan, 
-               {date_panen_sql} AS tanggal_panen, 
+               ht.tanggal_panen, 
                ht.status_verifikasi, 
-               {created_at_sql} AS created_at
+               ht.created_at
         FROM hasil_tani ht
         JOIN profile_petani p ON ht.petani_id = p.user_id
         {where}
@@ -281,7 +273,14 @@ def list_verifikasi_hasil_tani(
     with get_cursor() as cur:
         cur.execute(sql, tuple(params))
         rows = cur.fetchall()
-        return [dict(row) for row in rows]
+        # Format dates in Python for database-agnostic response
+        result = []
+        for row in rows:
+            row_dict = dict(row)
+            row_dict['tanggal_panen'] = format_date_for_api(row_dict['tanggal_panen'])
+            row_dict['created_at'] = format_date_for_api(row_dict['created_at'])
+            result.append(row_dict)
+        return result
 
 
 @router.get(
@@ -289,20 +288,12 @@ def list_verifikasi_hasil_tani(
     response_model=VerifikasiHasilTaniDetailResponse,
 )
 def detail_verifikasi_hasil_tani(laporan_id: int, user=Depends(require_role("admin"))):
-    # Abstract Query for MySQL (Dev) vs Postgres (Prod)
-    if ENVIRONMENT == "production":
-        date_panen_sql = "TO_CHAR(ht.tanggal_panen, 'YYYY-MM-DD')"
-        created_at_sql = "TO_CHAR(ht.created_at, 'YYYY-MM-DD HH24:MI:SS')"
-    else:
-        # SQLite (Dev)
-        date_panen_sql = "strftime('%Y-%m-%d', ht.tanggal_panen)"
-        created_at_sql = "strftime('%Y-%m-%d %H:%M:%S', ht.created_at)"
-
-    sql = f"""
+    # Database-agnostic query
+    sql = """
         SELECT ht.id, ht.petani_id, p.nama_lengkap, ht.jenis_tanaman, ht.jumlah_hasil, ht.satuan, 
-               {date_panen_sql} AS tanggal_panen, 
+               ht.tanggal_panen, 
                ht.status_verifikasi, 
-               {created_at_sql} AS created_at, 
+               ht.created_at, 
                ht.bukti_url
         FROM hasil_tani ht
         JOIN profile_petani p ON ht.petani_id = p.user_id
@@ -315,7 +306,11 @@ def detail_verifikasi_hasil_tani(laporan_id: int, user=Depends(require_role("adm
             raise HTTPException(
                 status_code=404, detail="Laporan hasil tani tidak ditemukan"
             )
-        return dict(row)
+        # Format dates in Python
+        row_dict = dict(row)
+        row_dict['tanggal_panen'] = format_date_for_api(row_dict['tanggal_panen'])
+        row_dict['created_at'] = format_date_for_api(row_dict['created_at'])
+        return row_dict
 
 
 @router.post("/verifikasi_hasil_tani/{laporan_id}/approve")
@@ -390,18 +385,12 @@ def riwayat_verifikasi_hasil_tani(
         
     where = f"WHERE {' AND '.join(filters)}"
 
-    if ENVIRONMENT == "production":
-        date_panen_sql = "TO_CHAR(ht.tanggal_panen, 'YYYY-MM-DD')"
-        created_at_sql = "TO_CHAR(ht.created_at, 'YYYY-MM-DD HH24:MI:SS')"
-    else:
-        date_panen_sql = "strftime('%Y-%m-%d', ht.tanggal_panen)"
-        created_at_sql = "strftime('%Y-%m-%d %H:%M:%S', ht.created_at)"
-
+    # Database-agnostic query
     sql = f"""
         SELECT ht.id, ht.petani_id, p.nama_lengkap, ht.jenis_tanaman, ht.jumlah_hasil, ht.satuan, 
-               {date_panen_sql} AS tanggal_panen, 
+               ht.tanggal_panen, 
                ht.status_verifikasi, 
-               {created_at_sql} AS created_at
+               ht.created_at
         FROM hasil_tani ht
         JOIN profile_petani p ON ht.petani_id = p.user_id
         {where}
@@ -412,7 +401,14 @@ def riwayat_verifikasi_hasil_tani(
     with get_cursor() as cur:
         cur.execute(sql, tuple(params))
         rows = cur.fetchall()
-        return [dict(row) for row in rows]
+        # Format dates in Python
+        result = []
+        for row in rows:
+            row_dict = dict(row)
+            row_dict['tanggal_panen'] = format_date_for_api(row_dict['tanggal_panen'])
+            row_dict['created_at'] = format_date_for_api(row_dict['created_at'])
+            result.append(row_dict)
+        return result
 
 
 
@@ -756,16 +752,15 @@ def buat_jadwal_distribusi_pupuk(
                     detail=f"Satuan tidak sesuai untuk pupuk id {it.pupuk_id}",
                 )
 
-        # Insert event (jadwal tables for consistency)
+        # Insert event without RETURNING (SQLite-compatible)
         cur.execute(
             """
             INSERT INTO jadwal_distribusi_event (nama_acara, tanggal, lokasi)
             VALUES (%s, %s, %s)
-            RETURNING id, nama_acara, tanggal, lokasi
             """,
             (req.nama_acara, req.tanggal, req.lokasi),
         )
-        event_row = cur.fetchone()
+        event_id = cur.lastrowid
 
         # Insert items
         for it in req.items:
@@ -774,14 +769,14 @@ def buat_jadwal_distribusi_pupuk(
                 INSERT INTO jadwal_distribusi_item (event_id, pupuk_id, jumlah, satuan)
                 VALUES (%s, %s, %s, %s)
                 """,
-                (event_row["id"], it.pupuk_id, it.jumlah, it.satuan),
+                (event_id, it.pupuk_id, it.jumlah, it.satuan),
             )
 
     return {
-        "id": event_row["id"],
-        "nama_acara": event_row["nama_acara"],
-        "tanggal": event_row["tanggal"],
-        "lokasi": event_row["lokasi"],
+        "id": event_id,
+        "nama_acara": req.nama_acara,
+        "tanggal": req.tanggal,
+        "lokasi": req.lokasi,
         "items": req.items,
     }
 
@@ -1115,22 +1110,24 @@ def laporan_rekap_harian(
         row = cur.fetchone()
         wilayah_terbanyak = row["lokasi"] if row else None
 
-        # rekap per hour using stock history
+        # rekap per hour using stock history - retrieve all records and group in Python
         cur.execute(
             """
-            SELECT CAST(strftime('%H', r.created_at) AS INTEGER) AS jam, s.nama_pupuk, SUM(r.jumlah) AS total
+            SELECT r.created_at, s.nama_pupuk, r.jumlah
             FROM riwayat_stock_pupuk r
             JOIN stok_pupuk s ON s.id = r.pupuk_id
             WHERE r.tipe='kurangi' AND r.created_at >= %s AND r.created_at < %s AND lower(r.satuan) = 'kg'
-            GROUP BY jam, s.nama_pupuk
-            ORDER BY jam
+            ORDER BY r.created_at
             """,
             (tanggal, tanggal + datetime.timedelta(days=1)),
         )
         by_hour: dict[int, dict[str, int]] = {}
         for rec in cur.fetchall():
-            jam = int(rec["jam"]) if rec["jam"] is not None else 0
-            by_hour.setdefault(jam, {})[rec["nama_pupuk"]] = int(rec["total"])
+            # Extract hour in Python instead of SQL
+            jam = extract_hour_from_datetime(rec["created_at"])
+            if jam is not None:
+                by_hour.setdefault(jam, {})
+                by_hour[jam][rec["nama_pupuk"]] = by_hour[jam].get(rec["nama_pupuk"], 0) + int(rec["jumlah"])
 
         rekapitulasi = [
             RekapHarianRow(jam=jam, by_pupuk=vals, penerima=None, status="OPTIMAL")
@@ -1170,34 +1167,40 @@ def laporan_rekap_bulanan(
     bulan: int = Query(..., ge=1, le=12),
     user=Depends(require_role("admin")),
 ):
+    # Use Python date boundaries
+    start_date, end_date = get_month_boundaries(tahun, bulan)
+    
     with get_cursor() as cur:
         # total penyaluran for month
         cur.execute(
             """
             SELECT COALESCE(SUM(jumlah),0) AS total
             FROM riwayat_stock_pupuk
-            WHERE tipe='kurangi' AND CAST(strftime('%Y', created_at) AS INTEGER) = %s AND CAST(strftime('%m', created_at) AS INTEGER) = %s AND lower(satuan)='kg'
+            WHERE tipe='kurangi' AND created_at >= %s AND created_at < %s AND lower(satuan)='kg'
             """,
-            (tahun, bulan),
+            (start_date, end_date),
         )
         total_penyaluran_kg = int(cur.fetchone()["total"] or 0)
 
         # per-day per-pupuk totals
         cur.execute(
             """
-            SELECT DATE(created_at) AS tgl, s.nama_pupuk, SUM(r.jumlah) AS total
+            SELECT r.created_at, s.nama_pupuk, r.jumlah
             FROM riwayat_stock_pupuk r
             JOIN stok_pupuk s ON s.id = r.pupuk_id
-            WHERE r.tipe='kurangi' AND CAST(strftime('%Y', r.created_at) AS INTEGER) = %s AND CAST(strftime('%m', r.created_at) AS INTEGER) = %s AND lower(r.satuan)='kg'
-            GROUP BY tgl, s.nama_pupuk
-            ORDER BY tgl
+            WHERE r.tipe='kurangi' AND r.created_at >= %s AND r.created_at < %s AND lower(r.satuan)='kg'
+            ORDER BY r.created_at
             """,
-            (tahun, bulan),
+            (start_date, end_date),
         )
         by_day: dict[datetime.date, dict[str, int]] = {}
         for rec in cur.fetchall():
-            tgl = rec["tgl"]
-            by_day.setdefault(tgl, {})[rec["nama_pupuk"]] = int(rec["total"])
+            # Extract date in Python
+            tgl = extract_date_from_datetime(rec["created_at"])
+            if tgl:
+                by_day.setdefault(tgl, {})
+                by_day[tgl][rec["nama_pupuk"]] = by_day[tgl].get(rec["nama_pupuk"], 0) + int(rec["jumlah"])
+        
         rekap_per_hari = [
             RekapAggregatedRow(tanggal=t, by_pupuk=vals)
             for t, vals in sorted(by_day.items())
@@ -1227,32 +1230,38 @@ def laporan_rekap_tahunan(
     tahun: int = Query(..., ge=2000),
     user=Depends(require_role("admin")),
 ):
+    # Use Python date boundaries
+    start_date, end_date = get_year_boundaries(tahun)
+    
     with get_cursor() as cur:
         cur.execute(
             """
             SELECT COALESCE(SUM(jumlah),0) AS total
             FROM riwayat_stock_pupuk
-            WHERE tipe='kurangi' AND CAST(strftime('%Y', created_at) AS INTEGER) = %s AND lower(satuan)='kg'
+            WHERE tipe='kurangi' AND created_at >= %s AND created_at < %s AND lower(satuan)='kg'
             """,
-            (tahun,),
+            (start_date, end_date),
         )
         total_penyaluran_kg = int(cur.fetchone()["total"] or 0)
 
         cur.execute(
             """
-            SELECT CAST(strftime('%m', r.created_at) AS INTEGER) AS bulan, s.nama_pupuk, SUM(r.jumlah) AS total
+            SELECT r.created_at, s.nama_pupuk, r.jumlah
             FROM riwayat_stock_pupuk r
             JOIN stok_pupuk s ON s.id = r.pupuk_id
-            WHERE r.tipe='kurangi' AND CAST(strftime('%Y', r.created_at) AS INTEGER) = %s AND lower(r.satuan)='kg'
-            GROUP BY bulan, s.nama_pupuk
-            ORDER BY bulan
+            WHERE r.tipe='kurangi' AND r.created_at >= %s AND r.created_at < %s AND lower(r.satuan)='kg'
+            ORDER BY r.created_at
             """,
-            (tahun,),
+            (start_date, end_date),
         )
         month_map: dict[int, dict[str, int]] = {}
         for rec in cur.fetchall():
-            bln = int(rec["bulan"]) if rec["bulan"] is not None else 0
-            month_map.setdefault(bln, {})[rec["nama_pupuk"]] = int(rec["total"])
+            # Extract month in Python
+            bln = extract_month_from_date(rec["created_at"])
+            if bln:
+                month_map.setdefault(bln, {})
+                month_map[bln][rec["nama_pupuk"]] = month_map[bln].get(rec["nama_pupuk"], 0) + int(rec["jumlah"])
+        
         rekap_per_bulan = [
             {"bulan": bln, "by_pupuk": vals} for bln, vals in sorted(month_map.items())
         ]
@@ -1284,65 +1293,79 @@ def download_laporan_rekap(
 
     with get_cursor() as cur:
         if tipe == "harian" and tanggal:
+            start_dt, end_dt = get_day_boundaries(tanggal)
             writer.writerow(["Tanggal", str(tanggal)])
             writer.writerow(["Jam", "Pupuk", "Jumlah (Kg)"])
             cur.execute(
                 """
-                SELECT CAST(strftime('%H', r.created_at) AS INTEGER) AS jam, s.nama_pupuk, SUM(r.jumlah) AS total
+                SELECT r.created_at, s.nama_pupuk, r.jumlah
                 FROM riwayat_stock_pupuk r
                 JOIN stok_pupuk s ON s.id = r.pupuk_id
                 WHERE r.tipe='kurangi' AND r.created_at >= %s AND r.created_at < %s AND lower(r.satuan)='kg'
-                GROUP BY jam, s.nama_pupuk
-                ORDER BY jam
+                ORDER BY r.created_at
                 """,
-                (tanggal, tanggal + datetime.timedelta(days=1)),
+                (start_dt, end_dt),
             )
+            # Group by hour in Python
+            by_hour = {}
             for rec in cur.fetchall():
-                writer.writerow(
-                    [
-                        int(rec["jam"]) if rec["jam"] is not None else 0,
-                        rec["nama_pupuk"],
-                        int(rec["total"]),
-                    ]
-                )
+                jam = extract_hour_from_datetime(rec["created_at"])
+                if jam is not None:
+                    key = (jam, rec["nama_pupuk"])
+                    by_hour[key] = by_hour.get(key, 0) + int(rec["jumlah"])
+            
+            for (jam, pupuk_nama), total in sorted(by_hour.items()):
+                writer.writerow([jam, pupuk_nama, total])
+                
         elif tipe == "bulanan" and tahun and bulan:
+            start_date, end_date = get_month_boundaries(tahun, bulan)
             writer.writerow(["Periode", f"{tahun}-{bulan:02d}"])
             writer.writerow(["Tanggal", "Pupuk", "Jumlah (Kg)"])
             cur.execute(
                 """
-                SELECT DATE(r.created_at) AS tgl, s.nama_pupuk, SUM(r.jumlah) AS total
+                SELECT r.created_at, s.nama_pupuk, r.jumlah
                 FROM riwayat_stock_pupuk r
                 JOIN stok_pupuk s ON s.id = r.pupuk_id
-                WHERE r.tipe='kurangi' AND CAST(strftime('%Y', r.created_at) AS INTEGER) = %s AND CAST(strftime('%m', r.created_at) AS INTEGER) = %s AND lower(r.satuan)='kg'
-                GROUP BY tgl, s.nama_pupuk
-                ORDER BY tgl
+                WHERE r.tipe='kurangi' AND r.created_at >= %s AND r.created_at < %s AND lower(r.satuan)='kg'
+                ORDER BY r.created_at
                 """,
-                (tahun, bulan),
+                (start_date, end_date),
             )
+            # Group by date in Python
+            by_day = {}
             for rec in cur.fetchall():
-                writer.writerow([rec["tgl"], rec["nama_pupuk"], int(rec["total"])])
+                tgl = extract_date_from_datetime(rec["created_at"])
+                if tgl:
+                    key = (tgl, rec["nama_pupuk"])
+                    by_day[key] = by_day.get(key, 0) + int(rec["jumlah"])
+            
+            for (tgl, pupuk_nama), total in sorted(by_day.items()):
+                writer.writerow([tgl, pupuk_nama, total])
+                
         elif tipe == "tahunan" and tahun:
+            start_date, end_date = get_year_boundaries(tahun)
             writer.writerow(["Tahun", str(tahun)])
             writer.writerow(["Bulan", "Pupuk", "Jumlah (Kg)"])
             cur.execute(
                 """
-                SELECT CAST(strftime('%m', r.created_at) AS INTEGER) AS bulan, s.nama_pupuk, SUM(r.jumlah) AS total
+                SELECT r.created_at, s.nama_pupuk, r.jumlah
                 FROM riwayat_stock_pupuk r
                 JOIN stok_pupuk s ON s.id = r.pupuk_id
-                WHERE r.tipe='kurangi' AND CAST(strftime('%Y', r.created_at) AS INTEGER) = %s AND lower(r.satuan)='kg'
-                GROUP BY bulan, s.nama_pupuk
-                ORDER BY bulan
+                WHERE r.tipe='kurangi' AND r.created_at >= %s AND r.created_at < %s AND lower(r.satuan)='kg'
+                ORDER BY r.created_at
                 """,
-                (tahun,),
+                (start_date, end_date),
             )
+            # Group by month in Python
+            by_month = {}
             for rec in cur.fetchall():
-                writer.writerow(
-                    [
-                        int(rec["bulan"]) if rec["bulan"] is not None else 0,
-                        rec["nama_pupuk"],
-                        int(rec["total"]),
-                    ]
-                )
+                bln = extract_month_from_date(rec["created_at"])
+                if bln:
+                    key = (bln, rec["nama_pupuk"])
+                    by_month[key] = by_month.get(key, 0) + int(rec["jumlah"])
+            
+            for (bln, pupuk_nama), total in sorted(by_month.items()):
+                writer.writerow([bln, pupuk_nama, total])
         else:
             raise HTTPException(
                 status_code=400, detail="Parameter tidak valid untuk tipe laporan"

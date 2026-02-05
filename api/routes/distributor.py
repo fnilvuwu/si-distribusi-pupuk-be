@@ -96,7 +96,7 @@ def get_jadwal_distribusi(
         params = []
 
         if lokasi:
-            query += " AND j.lokasi ILIKE %s"
+            query += " AND UPPER(j.lokasi) LIKE UPPER(%s)"
             params.append(f"%{lokasi}%")
 
         if tanggal:
@@ -346,7 +346,7 @@ def get_riwayat_distribusi_pupuk(
             params.append(end_date)
 
         if lokasi:
-            query += " AND j.lokasi ILIKE %s"
+            query += " AND UPPER(j.lokasi) LIKE UPPER(%s)"
             params.append(f"%{lokasi}%")
 
         query += " GROUP BY j.id, j.permohonan_id, j.tanggal_pengiriman, j.lokasi, j.status, sp.satuan"

@@ -33,10 +33,11 @@ CREATE TABLE IF NOT EXISTS pengajuan_pupuk (
   pupuk_id BIGINT NOT NULL REFERENCES stok_pupuk(id) ON DELETE RESTRICT,
   jumlah_diminta INTEGER NOT NULL,
   jumlah_disetujui INTEGER,
-  status TEXT NOT NULL CHECK (status IN ('pending', 'terverifikasi', 'dijadwalkan', 'dikirim', 'selesai')),
+  status TEXT NOT NULL CHECK (status IN ('pending', 'terverifikasi', 'dijadwalkan', 'dikirim', 'selesai', 'ditolak', 'dibatalkan')),
   alasan TEXT,
   url_dokumen_pendukung TEXT,
-  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  jadwal_event_id BIGINT REFERENCES jadwal_distribusi_event(id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS jadwal_distribusi_pupuk (

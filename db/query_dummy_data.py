@@ -20,7 +20,14 @@ for stok in session.query(StokPupuk).all():
 
 print("\n--- Pengajuan Pupuk ---")
 for permohonan in session.query(PermohonanPupuk).all():
-    print(f"ID: {permohonan.id}, Petani ID: {permohonan.petani_id}, Pupuk ID: {permohonan.pupuk_id}, Diminta: {permohonan.jumlah_diminta}, Disetujui: {permohonan.jumlah_disetujui}, Status: {permohonan.status}, Alasan: {permohonan.alasan}")
+    event_str = f", EventID: {permohonan.jadwal_event_id}" if permohonan.jadwal_event_id else ""
+    print(f"ID: {permohonan.id}, Petani ID: {permohonan.petani_id}, Pupuk ID: {permohonan.pupuk_id}, Diminta: {permohonan.jumlah_diminta}, Disetujui: {permohonan.jumlah_disetujui}, Status: {permohonan.status}{event_str}")
+
+print("\n--- Jadwal Distribusi Event ---")
+# Import JadwalDistribusiEvent locally or at top if added
+from db.models import JadwalDistribusiEvent
+for event in session.query(JadwalDistribusiEvent).all():
+    print(f"ID: {event.id}, Acara: {event.nama_acara}, Lokasi: {event.lokasi}, Tanggal: {event.tanggal}")
 
 print("\n--- Jadwal Distribusi Pupuk ---")
 for jadwal in session.query(JadwalDistribusi).all():

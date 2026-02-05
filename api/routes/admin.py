@@ -17,6 +17,63 @@ import datetime
 router = APIRouter()
 
 
+class AdminProfileUpdate(BaseModel):
+    nama_lengkap: Optional[str] = None
+    alamat: Optional[str] = None
+    no_hp: Optional[str] = None
+
+
+@router.get("/profile", response_model=dict)
+def get_admin_profile(user=Depends(require_role("admin"))):
+    with get_cursor() as cur:
+        cur.execute("""
+            SELECT u.username, p.nama_lengkap, p.alamat, p.no_hp
+            FROM users u
+            LEFT JOIN profile_admin p ON p.user_id = u.id
+            WHERE u.id = %s
+        """, (user['id'],))
+        row = cur.fetchone()
+        # If profile doesn't exist yet, return basic info or empty stats
+        if not row:
+             return {"username": user['username'], "nama_lengkap": "", "alamat": "", "no_hp": ""}
+        return dict(row)
+
+
+@router.put("/profile", response_model=dict)
+def update_admin_profile(req: AdminProfileUpdate, user=Depends(require_role("admin"))):
+    with get_cursor(commit=True) as cur:
+        # Check if profile exists
+        cur.execute("SELECT user_id FROM profile_admin WHERE user_id = %s", (user['id'],))
+        exists = cur.fetchone()
+        
+        if not exists:
+            # Create profile if not exists
+            cur.execute(
+                "INSERT INTO profile_admin (user_id, nama_lengkap, alamat, no_hp) VALUES (%s, %s, %s, %s)",
+                (user['id'], req.nama_lengkap or "", req.alamat or "", req.no_hp or "")
+            )
+            return {"status": "created"}
+
+        fields = []
+        params = []
+        if req.nama_lengkap is not None:
+            fields.append("nama_lengkap = %s")
+            params.append(req.nama_lengkap)
+        if req.alamat is not None:
+            fields.append("alamat = %s")
+            params.append(req.alamat)
+        if req.no_hp is not None:
+             fields.append("no_hp = %s")
+             params.append(req.no_hp)
+        
+        if fields:
+             params.append(user['id'])
+             sql = f"UPDATE profile_admin SET {', '.join(fields)} WHERE user_id = %s"
+             cur.execute(sql, tuple(params))
+        
+        return {"status": "updated"}
+
+
 @router.get("/verifikasi_petani", response_model=list[VerifikasiPetaniListResponse])
 def list_verifikasi_petani(
     status: Optional[bool] = Query(None),
@@ -342,6 +399,7 @@ class PermohonanPupukListResponse(BaseModel):
     jumlah_diminta: int
     status: str
     created_at: str
+    jadwal_id: Optional[int] = None
 
 
 class PermohonanPupukActionRequest(BaseModel):
@@ -352,13 +410,15 @@ class PermohonanPupukActionRequest(BaseModel):
     lokasi: str = None
     tanggal_pengiriman: datetime.date = None
     lokasi: str = None
+    jadwal_id: int = None
 
 
 @router.get("/persetujuan_pupuk", response_model=List[PermohonanPupukListResponse])
 def list_persetujuan_pupuk(user=Depends(require_role("admin"))):
     """List all pending fertilizer requests."""
     sql = """
-        SELECT p.id, prof.nama_lengkap AS nama_petani, s.nama_pupuk, p.pupuk_id, p.jumlah_diminta, p.status, p.created_at
+        SELECT p.id, prof.nama_lengkap AS nama_petani, s.nama_pupuk, p.pupuk_id, p.jumlah_diminta, p.status, p.created_at,
+               p.jadwal_event_id AS jadwal_id
         FROM pengajuan_pupuk p
         JOIN profile_petani prof ON p.petani_id = prof.user_id
         JOIN stok_pupuk s ON p.pupuk_id = s.id
@@ -536,21 +596,29 @@ def approve_persetujuan_pupuk(
                 detail=f"Stok tidak mencukupi. Stok tersedia: {available_stock}, diminta disetujui: {req.jumlah_disetujui}",
             )
 
+        # Validate jadwal_id if provided
+        if req.jadwal_id:
+             cur.execute("SELECT id FROM jadwal_distribusi_event WHERE id = %s", (req.jadwal_id,))
+             if not cur.fetchone():
+                 raise HTTPException(status_code=400, detail="Jadwal event tidak ditemukan")
+
         # Determine final status
         status_target = 'terverifikasi'
-        if req.tanggal_pengiriman and req.lokasi:
+        if (req.tanggal_pengiriman and req.lokasi) or req.jadwal_id:
              status_target = 'dijadwalkan'
 
-        cur.execute(
-            """
-            UPDATE pengajuan_pupuk 
-            SET jumlah_disetujui = %s, 
-                pupuk_id = %s,
-                status = %s 
-            WHERE id = %s
-            """,
-            (req.jumlah_disetujui, target_pupuk_id, status_target, permohonan_id),
-        )
+        # Update Query Builder
+        update_fields = ["jumlah_disetujui = %s", "pupuk_id = %s", "status = %s"]
+        update_values = [req.jumlah_disetujui, target_pupuk_id, status_target]
+
+        if req.jadwal_id:
+            update_fields.append("jadwal_event_id = %s")
+            update_values.append(req.jadwal_id)
+
+        update_values.append(permohonan_id)
+
+        sql = f"UPDATE pengajuan_pupuk SET {', '.join(update_fields)} WHERE id = %s"
+        cur.execute(sql, tuple(update_values))
 
         # Create JadwalDistribusi if applicable
         if req.tanggal_pengiriman and req.lokasi:

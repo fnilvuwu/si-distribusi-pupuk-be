@@ -209,6 +209,55 @@ def seed_all_data():
         session.commit()
         print("[OK] Seeded 6 types of fertilizers")
         
+        # ========== JADWAL DISTRIBUSI EVENT ==========
+        print("\nSeeding distribution events...")
+        
+        events = [
+            JadwalDistribusiEvent(
+                nama_acara="Pembagian Pupuk Musim Tanam Musim Hujan",
+                tanggal=date.today() + timedelta(days=10),
+                lokasi="Lapangan Desa Suka Maju"
+            ),
+            JadwalDistribusiEvent(
+                nama_acara="Pembagian Pupuk Berkualitas Tinggi untuk Petani",
+                tanggal=date.today() + timedelta(days=20),
+                lokasi="Balai Desa Makmur Jaya"
+            ),
+        ]
+        session.add_all(events)
+        session.flush()
+        
+        # Event items
+        event_items = [
+            JadwalDistribusiItem(
+                event_id=events[0].id,
+                pupuk_id=fertilizers[0].id,
+                jumlah=1000,
+                satuan="kg"
+            ),
+            JadwalDistribusiItem(
+                event_id=events[0].id,
+                pupuk_id=fertilizers[1].id,
+                jumlah=500,
+                satuan="kg"
+            ),
+            JadwalDistribusiItem(
+                event_id=events[1].id,
+                pupuk_id=fertilizers[3].id,
+                jumlah=800,
+                satuan="kg"
+            ),
+            JadwalDistribusiItem(
+                event_id=events[1].id,
+                pupuk_id=fertilizers[4].id,
+                jumlah=600,
+                satuan="kg"
+            ),
+        ]
+        session.add_all(event_items)
+        session.commit()
+        print("[OK] Seeded 2 events with 4 items")
+
         # ========== PERMOHONAN PUPUK (REQUESTS) ==========
         print("\nSeeding fertilizer requests...")
         
@@ -220,7 +269,8 @@ def seed_all_data():
                 jumlah_disetujui=280,
                 status="terverifikasi",
                 alasan="Kebutuhan musim tanam padi",
-                created_at=datetime.now()
+                created_at=datetime.now(),
+                jadwal_event_id=events[0].id
             ),
             PermohonanPupuk(
                 petani_id=petani_profiles[1].user_id,
@@ -229,7 +279,8 @@ def seed_all_data():
                 jumlah_disetujui=200,
                 status="dijadwalkan",
                 alasan="Pemupukan lanjutan tanaman jagung",
-                created_at=datetime.now()
+                created_at=datetime.now(),
+                jadwal_event_id=events[0].id
             ),
             PermohonanPupuk(
                 petani_id=petani_profiles[2].user_id,
@@ -238,7 +289,8 @@ def seed_all_data():
                 jumlah_disetujui=250,
                 status="dijadwalkan",
                 alasan="Persiapan penanaman musim tanam",
-                created_at=datetime.now()
+                created_at=datetime.now(),
+                jadwal_event_id=events[1].id
             ),
             PermohonanPupuk(
                 petani_id=petani_profiles[3].user_id,
@@ -256,7 +308,8 @@ def seed_all_data():
                 jumlah_disetujui=450,
                 status="selesai",
                 alasan="Pemupukan organik untuk keberlanjutan",
-                created_at=datetime.now()
+                created_at=datetime.now(),
+                jadwal_event_id=events[1].id
             ),
             PermohonanPupuk(
                 petani_id=petani_profiles[0].user_id,
@@ -413,54 +466,7 @@ def seed_all_data():
         session.commit()
         print("[OK] Seeded 6 harvest records")
         
-        # ========== JADWAL DISTRIBUSI EVENT ==========
-        print("\nSeeding distribution events...")
-        
-        events = [
-            JadwalDistribusiEvent(
-                nama_acara="Pembagian Pupuk Musim Tanam Musim Hujan",
-                tanggal=date.today() + timedelta(days=10),
-                lokasi="Lapangan Desa Suka Maju"
-            ),
-            JadwalDistribusiEvent(
-                nama_acara="Pembagian Pupuk Berkualitas Tinggi untuk Petani",
-                tanggal=date.today() + timedelta(days=20),
-                lokasi="Balai Desa Makmur Jaya"
-            ),
-        ]
-        session.add_all(events)
-        session.flush()
-        
-        # Event items
-        event_items = [
-            JadwalDistribusiItem(
-                event_id=events[0].id,
-                pupuk_id=fertilizers[0].id,
-                jumlah=1000,
-                satuan="kg"
-            ),
-            JadwalDistribusiItem(
-                event_id=events[0].id,
-                pupuk_id=fertilizers[1].id,
-                jumlah=500,
-                satuan="kg"
-            ),
-            JadwalDistribusiItem(
-                event_id=events[1].id,
-                pupuk_id=fertilizers[3].id,
-                jumlah=800,
-                satuan="kg"
-            ),
-            JadwalDistribusiItem(
-                event_id=events[1].id,
-                pupuk_id=fertilizers[4].id,
-                jumlah=600,
-                satuan="kg"
-            ),
-        ]
-        session.add_all(event_items)
-        session.commit()
-        print("[OK] Seeded 2 events with 4 items")
+
         
         # ========== VERIFIKASI PENERIMA PUPUK ==========
         print("\nSeeding recipient verification records...")

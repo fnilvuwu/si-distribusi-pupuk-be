@@ -1,64 +1,51 @@
 import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from db.models import User, ProfilePetani, ProfileDistributor, ProfileAdmin, ProfileSuperadmin
 
-engine = create_engine('sqlite:///./dev.db')
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-db = SessionLocal()
+from db.db_base import SessionLocal
+from db.models import (
+    User, ProfilePetani, ProfileDistributor, ProfileAdmin, ProfileSuperadmin,
+    StokPupuk, PermohonanPupuk, JadwalDistribusiEvent
+)
 
-print("Users:")
-for user in db.query(User).all():
-    print(f"ID: {user.id}, Username: {user.username}, Role: {user.role}")
+def verify():
+    db = SessionLocal()
+    try:
+        print("=== USERS ===")
+        users = db.query(User).all()
+        for user in users:
+            print(f"ID: {user.id}, Username: {user.username}, Role: {user.role}")
+        print(f"Total Users: {len(users)}\n")
 
-print("\nPetani Profiles:")
-for p in db.query(ProfilePetani).all():
-    print(f"User ID: {p.user_id}, Nama: {p.nama_lengkap}, NIK: {p.nik}, Alamat: {p.alamat}, No HP: {p.no_hp}")
+        print("=== PROFILES ===")
+        print(f"Petani: {db.query(ProfilePetani).count()}")
+        print(f"Distributor: {db.query(ProfileDistributor).count()}")
+        print(f"Admin: {db.query(ProfileAdmin).count()}")
+        print(f"Superadmin: {db.query(ProfileSuperadmin).count()}\n")
 
-print("\nDistributor Profiles:")
-for d in db.query(ProfileDistributor).all():
-    print(f"User ID: {d.user_id}, Nama: {d.nama_lengkap}, Perusahaan: {d.perusahaan}, Alamat: {d.alamat}, No HP: {d.no_hp}")
+        print("=== FERTILIZERS ===")
+        pupuks = db.query(StokPupuk).all()
+        for p in pupuks:
+            print(f"- {p.nama_pupuk}: {p.jumlah_stok} {p.satuan}")
+        print(f"Total Types: {len(pupuks)}\n")
 
-print("\nAdmin Profiles:")
-for a in db.query(ProfileAdmin).all():
-    print(f"User ID: {a.user_id}, Nama: {a.nama_lengkap}, Alamat: {a.alamat}, No HP: {a.no_hp}")
+        print("=== DISTRIBUTION EVENTS ===")
+        events = db.query(JadwalDistribusiEvent).all()
+        for e in events:
+            print(f"ID: {e.id}, Acara: {e.nama_acara}, Lokasi: {e.lokasi}")
+        print(f"Total Events: {len(events)}\n")
 
-print("\nSuperadmin Profiles:")
-for s in db.query(ProfileSuperadmin).all():
-    print(f"User ID: {s.user_id}, Nama: {s.nama_lengkap}, Alamat: {s.alamat}, No HP: {s.no_hp}")
+        print("=== FERTILIZER REQUESTS ===")
+        requests = db.query(PermohonanPupuk).all()
+        for r in requests:
+            event_info = f", Jadwal Event ID: {r.jadwal_event_id}" if r.jadwal_event_id else ""
+            print(f"ID: {r.id}, Petani ID: {r.petani_id}, Status: {r.status}{event_info}")
+        print(f"Total Requests: {len(requests)}\n")
 
-db.close()
-import sys
-import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from db.models import User, ProfilePetani, ProfileDistributor, ProfileAdmin, ProfileSuperadmin
+    except Exception as e:
+        print(f"Verification failed: {e}")
+    finally:
+        db.close()
 
-engine = create_engine('sqlite:///./dev.db')
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-db = SessionLocal()
-
-print("Users:")
-for user in db.query(User).all():
-    print(f"ID: {user.id}, Username: {user.username}, Role: {user.role}")
-
-print("\nPetani Profiles:")
-for p in db.query(ProfilePetani).all():
-    print(f"User ID: {p.user_id}, Nama: {p.nama_lengkap}, NIK: {p.nik}, Alamat: {p.alamat}, No HP: {p.no_hp}")
-
-print("\nDistributor Profiles:")
-for d in db.query(ProfileDistributor).all():
-    print(f"User ID: {d.user_id}, Nama: {d.nama_lengkap}, Perusahaan: {d.perusahaan}, Alamat: {d.alamat}, No HP: {d.no_hp}")
-
-print("\nAdmin Profiles:")
-for a in db.query(ProfileAdmin).all():
-    print(f"User ID: {a.user_id}, Nama: {a.nama_lengkap}, Alamat: {a.alamat}, No HP: {a.no_hp}")
-
-print("\nSuperadmin Profiles:")
-for s in db.query(ProfileSuperadmin).all():
-    print(f"User ID: {s.user_id}, Nama: {s.nama_lengkap}, Alamat: {s.alamat}, No HP: {s.no_hp}")
-
-db.close()
+if __name__ == "__main__":
+    verify()

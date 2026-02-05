@@ -119,10 +119,13 @@ class PermohonanPupuk(Base):
         CheckConstraint("status IN ('pending', 'terverifikasi', 'dijadwalkan', 'dikirim', 'selesai', 'ditolak')"),
     )
 
+    jadwal_event_id = Column(Integer, ForeignKey("jadwal_distribusi_event.id", ondelete="SET NULL"), nullable=True)
+
     # Relationships
     petani = relationship("ProfilePetani", back_populates="permohonan_pupuk")
     pupuk = relationship("StokPupuk", back_populates="permohonan_pupuk")
     jadwal_distribusi = relationship("JadwalDistribusi", back_populates="permohonan", uselist=False)
+    jadwal_event = relationship("JadwalDistribusiEvent")
 
 class JadwalDistribusi(Base):
     __tablename__ = "jadwal_distribusi_pupuk"

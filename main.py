@@ -63,15 +63,12 @@ app.add_middleware(
 app.include_router(api_router)
 
 # Serve uploaded files
-# In serverless/production environments, use /tmp (read-write allowed)
-# In development, use local uploads directory
-if os.getenv("ENVIRONMENT") == "production" or os.getenv("VERCEL"):
-    UPLOAD_DIR = Path("/tmp/uploads")
-else:
-    UPLOAD_DIR = Path("uploads")
-
+# Use /tmp/uploads for both production and development
+UPLOAD_DIR = Path("/tmp/uploads")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
+# Mount the uploads directory
+app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 
 @app.get("/health")
 def health_check() -> dict:

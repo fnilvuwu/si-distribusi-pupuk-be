@@ -466,13 +466,21 @@ class StokPupuk(BaseModel):
     satuan: str | None = None
 
 
-@router.get("/pupuk_list", response_model=List[str])
-def list_stok_pupuk_simple(user=Depends(require_role("admin"))):
-    """List all unique fertilizer names."""
+@router.get("/pupuk_list", response_model=List[StokPupuk])
+def list_stok_pupuk(user=Depends(require_role("admin"))):
+    """List all fertilizer types with their current stock levels.
+    
+    Returns complete pupuk information including id, nama_pupuk, jumlah_stok, and satuan.
+    This enables frontend to easily match pupuk_id from riwayat_stock_pupuk to pupuk records.
+    """
     with get_cursor() as cur:
-        cur.execute("SELECT DISTINCT nama_pupuk FROM stok_pupuk ORDER BY nama_pupuk")
+        cur.execute("""
+            SELECT id, nama_pupuk, jumlah_stok, satuan 
+            FROM stok_pupuk 
+            ORDER BY nama_pupuk
+        """)
         rows = cur.fetchall()
-        return [row["nama_pupuk"] for row in rows]
+        return [dict(row) for row in rows]
 
 
 class StokPupukCreate(BaseModel):

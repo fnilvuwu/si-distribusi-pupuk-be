@@ -4,10 +4,10 @@ import logging
 from datetime import date
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, Query
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, List
 
 from core.dependencies import require_role
 from core.file_utils import save_upload_file
@@ -295,6 +295,16 @@ def lapor_hasil_tani(
         logger.error(f"Error reporting harvest: {str(e)}")
         db.rollback()
         raise HTTPException(status_code=500, detail="Error processing harvest report")
+
+
+@router.get("/petani/laporan_hasil_tani")
+def list_laporan_hasil_tani(
+    user=Depends(require_role("petani")),
+    db: Session = Depends(get_db)
+):
+    """List laporan hasil tani for the current user."""
+    reports = db.query(HasilTani).filter(HasilTani.petani_id == user["id"]).order_by(HasilTani.created_at.desc()).all()
+    return reports
 
 
 

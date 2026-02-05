@@ -2,7 +2,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy import text
 from typing import List, Optional
 from core.dependencies import require_role
-from db.db_base import get_cursor
+from db.db_base import get_cursor, ENVIRONMENT
 from schemas.verifikasi import (
     VerifikasiPetaniListResponse,
     VerifikasiPetaniDetailResponse,
@@ -27,11 +27,15 @@ def list_verifikasi_petani(
     user=Depends(require_role("admin")),
 ):
     offset = (page - 1) * page_size
-    filters = ["status_verifikasi = false"]
+
+    offset = (page - 1) * page_size
+    filters = []
     params = []
     if status is not None:
         filters.append("status_verifikasi = %s")
         params.append(status)
+    else:
+        filters.append("status_verifikasi = false")
     where = f"WHERE {' AND '.join(filters)}" if filters else ""
     sql = f"""
         SELECT user_id, nama_lengkap, nik, status_verifikasi, '' AS created_at
@@ -112,6 +116,28 @@ def reject_verifikasi_petani(
     return {"status": "rejected", "reason": req.reason}
 
 
+@router.get("/riwayat_verifikasi_petani", response_model=list[VerifikasiPetaniListResponse])
+def riwayat_verifikasi_petani(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    user=Depends(require_role("admin")),
+):
+    offset = (page - 1) * page_size
+    # Show history: status_verifikasi = TRUE (already processed/accepted)
+    sql = """
+        SELECT user_id, nama_lengkap, nik, status_verifikasi, '' AS created_at
+        FROM profile_petani
+        WHERE status_verifikasi = TRUE
+        ORDER BY user_id DESC
+        LIMIT %s OFFSET %s
+    """
+    params = [page_size, offset]
+    with get_cursor() as cur:
+        cur.execute(sql, tuple(params))
+        rows = cur.fetchall()
+        return [dict(row) for row in rows]
+
+
 @router.get(
     "/verifikasi_hasil_tani", response_model=list[VerifikasiHasilTaniListResponse]
 )
@@ -136,11 +162,30 @@ def list_verifikasi_hasil_tani(
         filters.append("ht.created_at <= %s")
         params.append(date_to)
     where = f"WHERE {' AND '.join(filters)}" if filters else ""
+
+    # Abstract Query for MySQL (Dev) vs Postgres (Prod) vs SQLite (Dev default)
+    if ENVIRONMENT == "production":
+        # PostgreSQL
+        date_panen_sql = "TO_CHAR(ht.tanggal_panen, 'YYYY-MM-DD')"
+        created_at_sql = "TO_CHAR(ht.created_at, 'YYYY-MM-DD HH24:MI:SS')"
+    else:
+        # SQLite (Default Development) uses strftime
+        # MySQL uses DATE_FORMAT
+        # We try to detect or just use SQLite syntax which is what is crashing
+        # SQLite syntax: strftime('%Y-%m-%d', date_col)
+        # MySQL syntax: DATE_FORMAT(date_col, '%Y-%m-%d')
+        
+        # Since the user specifically has SQLite error, we prioritize SQLite fix.
+        # Ideally we check engine.dialect.name but we don't have engine imported.
+        # We will usage SQLite syntax for dev environment as it is the default.
+        date_panen_sql = "strftime('%Y-%m-%d', ht.tanggal_panen)"
+        created_at_sql = "strftime('%Y-%m-%d %H:%M:%S', ht.created_at)"
+
     sql = f"""
         SELECT ht.id, ht.petani_id, p.nama_lengkap, ht.jenis_tanaman, ht.jumlah_hasil, ht.satuan, 
-               TO_CHAR(ht.tanggal_panen, 'YYYY-MM-DD') AS tanggal_panen, 
+               {date_panen_sql} AS tanggal_panen, 
                ht.status_verifikasi, 
-               TO_CHAR(ht.created_at, 'YYYY-MM-DD HH24:MI:SS') AS created_at
+               {created_at_sql} AS created_at
         FROM hasil_tani ht
         JOIN profile_petani p ON ht.petani_id = p.user_id
         {where}
@@ -159,11 +204,20 @@ def list_verifikasi_hasil_tani(
     response_model=VerifikasiHasilTaniDetailResponse,
 )
 def detail_verifikasi_hasil_tani(laporan_id: int, user=Depends(require_role("admin"))):
-    sql = """
+    # Abstract Query for MySQL (Dev) vs Postgres (Prod)
+    if ENVIRONMENT == "production":
+        date_panen_sql = "TO_CHAR(ht.tanggal_panen, 'YYYY-MM-DD')"
+        created_at_sql = "TO_CHAR(ht.created_at, 'YYYY-MM-DD HH24:MI:SS')"
+    else:
+        # SQLite (Dev)
+        date_panen_sql = "strftime('%Y-%m-%d', ht.tanggal_panen)"
+        created_at_sql = "strftime('%Y-%m-%d %H:%M:%S', ht.created_at)"
+
+    sql = f"""
         SELECT ht.id, ht.petani_id, p.nama_lengkap, ht.jenis_tanaman, ht.jumlah_hasil, ht.satuan, 
-               TO_CHAR(ht.tanggal_panen, 'YYYY-MM-DD') AS tanggal_panen, 
+               {date_panen_sql} AS tanggal_panen, 
                ht.status_verifikasi, 
-               TO_CHAR(ht.created_at, 'YYYY-MM-DD HH24:MI:SS') AS created_at, 
+               {created_at_sql} AS created_at, 
                ht.bukti_url
         FROM hasil_tani ht
         JOIN profile_petani p ON ht.petani_id = p.user_id
@@ -230,6 +284,53 @@ def reject_verifikasi_hasil_tani(
     return {"status": "rejected", "reason": req.reason}
 
 
+@router.get("/riwayat_verifikasi_hasil_tani", response_model=list[VerifikasiHasilTaniListResponse])
+def riwayat_verifikasi_hasil_tani(
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    user=Depends(require_role("admin")),
+):
+    offset = (page - 1) * page_size
+    filters = ["ht.status_verifikasi = TRUE"] # Only verified for history?
+    params = []
+    
+    if date_from:
+        filters.append("ht.created_at >= %s")
+        params.append(date_from)
+    if date_to:
+        filters.append("ht.created_at <= %s")
+        params.append(date_to)
+        
+    where = f"WHERE {' AND '.join(filters)}"
+
+    if ENVIRONMENT == "production":
+        date_panen_sql = "TO_CHAR(ht.tanggal_panen, 'YYYY-MM-DD')"
+        created_at_sql = "TO_CHAR(ht.created_at, 'YYYY-MM-DD HH24:MI:SS')"
+    else:
+        date_panen_sql = "strftime('%Y-%m-%d', ht.tanggal_panen)"
+        created_at_sql = "strftime('%Y-%m-%d %H:%M:%S', ht.created_at)"
+
+    sql = f"""
+        SELECT ht.id, ht.petani_id, p.nama_lengkap, ht.jenis_tanaman, ht.jumlah_hasil, ht.satuan, 
+               {date_panen_sql} AS tanggal_panen, 
+               ht.status_verifikasi, 
+               {created_at_sql} AS created_at
+        FROM hasil_tani ht
+        JOIN profile_petani p ON ht.petani_id = p.user_id
+        {where}
+        ORDER BY ht.created_at DESC
+        LIMIT %s OFFSET %s
+    """
+    params.extend([page_size, offset])
+    with get_cursor() as cur:
+        cur.execute(sql, tuple(params))
+        rows = cur.fetchall()
+        return [dict(row) for row in rows]
+
+
+
 # --- Persetujuan Pupuk (Fertilizer Approval) ---
 
 
@@ -247,6 +348,10 @@ class PermohonanPupukActionRequest(BaseModel):
     jumlah_disetujui: int = None
     pupuk_id: int = None
     alasan: str = None
+    tanggal_pengiriman: datetime.date = None
+    lokasi: str = None
+    tanggal_pengiriman: datetime.date = None
+    lokasi: str = None
 
 
 @router.get("/persetujuan_pupuk", response_model=List[PermohonanPupukListResponse])
@@ -273,14 +378,109 @@ class StokPupuk(BaseModel):
     satuan: str | None = None
 
 
-@router.get("/stok_pupuk_list", response_model=List[StokPupuk])
+@router.get("/pupuk_list", response_model=List[str])
 def list_stok_pupuk_simple(user=Depends(require_role("admin"))):
-    """List all fertilizer stocks (simple list for dropdowns)."""
+    """List all unique fertilizer names."""
     with get_cursor() as cur:
+        cur.execute("SELECT DISTINCT nama_pupuk FROM stok_pupuk ORDER BY nama_pupuk")
+        rows = cur.fetchall()
+        return [row["nama_pupuk"] for row in rows]
+
+
+class StokPupukCreate(BaseModel):
+    nama_pupuk: str
+    jumlah_stok: int = 0
+    satuan: str
+
+
+class StokPupukUpdate(BaseModel):
+    nama_pupuk: Optional[str] = None
+    jumlah_stok: Optional[int] = None
+    satuan: Optional[str] = None
+
+
+@router.post("/pupuk_list", response_model=StokPupuk)
+def create_stok_pupuk(req: StokPupukCreate, user=Depends(require_role("admin"))):
+    with get_cursor(commit=True) as cur:
+        # Check duplicate name
+        cur.execute("SELECT id FROM stok_pupuk WHERE nama_pupuk = %s", (req.nama_pupuk,))
+        if cur.fetchone():
+            raise HTTPException(status_code=400, detail="Nama pupuk sudah ada")
+        
         cur.execute(
-            "SELECT id, nama_pupuk, jumlah_stok, satuan FROM stok_pupuk ORDER BY nama_pupuk"
+            """
+            INSERT INTO stok_pupuk (nama_pupuk, jumlah_stok, satuan)
+            VALUES (%s, %s, %s)
+            """,
+            (req.nama_pupuk, req.jumlah_stok, req.satuan),
         )
-        return [dict(row) for row in cur.fetchall()]
+        new_id = cur.lastrowid
+        if not new_id:
+             # Fallback for some DB drivers if lastrowid not avail immediately
+             cur.execute("SELECT id FROM stok_pupuk WHERE nama_pupuk = %s", (req.nama_pupuk,))
+             new_id = cur.fetchone()["id"]
+             
+        return {
+            "id": new_id,
+            "nama_pupuk": req.nama_pupuk,
+            "jumlah_stok": req.jumlah_stok,
+            "satuan": req.satuan
+        }
+
+
+@router.put("/pupuk_list/{pupuk_id}", response_model=StokPupuk)
+def update_stok_pupuk(pupuk_id: int, req: StokPupukUpdate, user=Depends(require_role("admin"))):
+    with get_cursor(commit=True) as cur:
+        cur.execute("SELECT * FROM stok_pupuk WHERE id = %s", (pupuk_id,))
+        existing = cur.fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="Pupuk tidak ditemukan")
+            
+        fields = []
+        values = []
+        if req.nama_pupuk:
+            # Check duplicate if name changing
+            if req.nama_pupuk != existing["nama_pupuk"]:
+                cur.execute("SELECT id FROM stok_pupuk WHERE nama_pupuk = %s", (req.nama_pupuk,))
+                if cur.fetchone():
+                    raise HTTPException(status_code=400, detail="Nama pupuk sudah digunakan")
+            fields.append("nama_pupuk = %s")
+            values.append(req.nama_pupuk)
+        
+        if req.jumlah_stok is not None:
+             fields.append("jumlah_stok = %s")
+             values.append(req.jumlah_stok)
+             
+        if req.satuan:
+             fields.append("satuan = %s")
+             values.append(req.satuan)
+             
+        if not fields:
+             return existing
+             
+        values.append(pupuk_id)
+        sql = f"UPDATE stok_pupuk SET {', '.join(fields)} WHERE id = %s"
+        cur.execute(sql, tuple(values))
+        
+        # Return updated
+        cur.execute("SELECT * FROM stok_pupuk WHERE id = %s", (pupuk_id,))
+        return dict(cur.fetchone())
+
+
+@router.delete("/pupuk_list/{pupuk_id}")
+def delete_stok_pupuk(pupuk_id: int, user=Depends(require_role("admin"))):
+    with get_cursor(commit=True) as cur:
+        cur.execute("SELECT id FROM stok_pupuk WHERE id = %s", (pupuk_id,))
+        if not cur.fetchone():
+            raise HTTPException(status_code=404, detail="Pupuk tidak ditemukan")
+            
+        try:
+            cur.execute("DELETE FROM stok_pupuk WHERE id = %s", (pupuk_id,))
+        except Exception as e:
+            # Likely foreign key constraint
+            raise HTTPException(status_code=400, detail="Tidak dapat menghapus pupuk karena masih digunakan dalam data lain")
+            
+        return {"status": "deleted"}
 
 
 @router.post("/persetujuan_pupuk/{permohonan_id}/approve")
@@ -336,16 +536,31 @@ def approve_persetujuan_pupuk(
                 detail=f"Stok tidak mencukupi. Stok tersedia: {available_stock}, diminta disetujui: {req.jumlah_disetujui}",
             )
 
+        # Determine final status
+        status_target = 'terverifikasi'
+        if req.tanggal_pengiriman and req.lokasi:
+             status_target = 'dijadwalkan'
+
         cur.execute(
             """
             UPDATE pengajuan_pupuk 
             SET jumlah_disetujui = %s, 
                 pupuk_id = %s,
-                status = 'terverifikasi' 
+                status = %s 
             WHERE id = %s
             """,
-            (req.jumlah_disetujui, target_pupuk_id, permohonan_id),
+            (req.jumlah_disetujui, target_pupuk_id, status_target, permohonan_id),
         )
+
+        # Create JadwalDistribusi if applicable
+        if req.tanggal_pengiriman and req.lokasi:
+            cur.execute(
+                """
+                INSERT INTO jadwal_distribusi_pupuk (permohonan_id, tanggal_pengiriman, lokasi, status)
+                VALUES (%s, %s, %s, 'dijadwalkan')
+                """,
+                (permohonan_id, req.tanggal_pengiriman, req.lokasi)
+            )
         # Optionally, log approval reason
     return {
         "status": "approved",
@@ -584,6 +799,17 @@ def detail_jadwal_distribusi_pupuk(
             "lokasi": ev["lokasi"],
             "items": items,
         }
+
+
+@router.get("/list_event_jadwal_pengambilan_pupuk", response_model=List[AcaraDistribusiResponse])
+def list_event_jadwal_pengambilan_pupuk(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    user=Depends(require_role("admin")),
+):
+    """Alias/Same as jadwal_distribusi_pupuk but usually for selection."""
+    return list_jadwal_distribusi_pupuk(page=page, page_size=page_size, user=user)
+
 
 
 # --- Stok Pupuk (Stock Management) ---

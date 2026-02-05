@@ -7,7 +7,7 @@ from core.security import create_access_token, hash_password, verify_password
 from core.profile_utils import create_or_update_profile
 from core.dependencies import get_current_user
 from db.db_base import get_db
-from db.models import User, ProfilePetani
+from db.models import User, ProfilePetani, ProfileAdmin, ProfileDistributor, ProfileSuperadmin
 from db.models import ProfilePetani
 from schemas.auth import LoginResponse
 
@@ -83,10 +83,16 @@ def login(
     if not user or not verify_password(form_data.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    # Get full name if petani
+    # Get full name based on role
     full_name = None
     if user.role == "petani" and user.profile_petani:
         full_name = user.profile_petani.nama_lengkap
+    elif user.role == "admin" and user.profile_admin:
+        full_name = user.profile_admin.nama_lengkap
+    elif user.role == "distributor" and user.profile_distributor:
+        full_name = user.profile_distributor.nama_lengkap
+    elif user.role == "super_admin" and user.profile_superadmin:
+        full_name = user.profile_superadmin.nama_lengkap
 
     access_token = create_access_token(data={"sub": str(user.id)})
     return LoginResponse(access_token=access_token, role=user.role, full_name=full_name)

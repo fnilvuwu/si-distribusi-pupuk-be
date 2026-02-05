@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy import text
 from typing import List, Optional
@@ -10,12 +9,13 @@ from schemas.verifikasi import (
     VerifikasiPetaniActionRequest,
     VerifikasiHasilTaniListResponse,
     VerifikasiHasilTaniDetailResponse,
-    VerifikasiHasilTaniActionRequest
+    VerifikasiHasilTaniActionRequest,
 )
 from pydantic import BaseModel
 import datetime
 
 router = APIRouter()
+
 
 @router.get("/verifikasi_petani", response_model=list[VerifikasiPetaniListResponse])
 def list_verifikasi_petani(
@@ -27,7 +27,7 @@ def list_verifikasi_petani(
     user=Depends(require_role("admin")),
 ):
     offset = (page - 1) * page_size
-    filters = ["status_verifikasi = 0"]
+    filters = ["status_verifikasi = false"]
     params = []
     if status is not None:
         filters.append("status_verifikasi = %s")
@@ -46,7 +46,10 @@ def list_verifikasi_petani(
         rows = cur.fetchall()
         return [dict(row) for row in rows]
 
-@router.get("/verifikasi_petani/{petani_id}", response_model=VerifikasiPetaniDetailResponse)
+
+@router.get(
+    "/verifikasi_petani/{petani_id}", response_model=VerifikasiPetaniDetailResponse
+)
 def detail_verifikasi_petani(petani_id: int, user=Depends(require_role("admin"))):
     sql = """
         SELECT user_id, nama_lengkap, nik, alamat, no_hp, url_ktp, url_kartu_tani, status_verifikasi, '' AS created_at
@@ -59,6 +62,7 @@ def detail_verifikasi_petani(petani_id: int, user=Depends(require_role("admin"))
             raise HTTPException(status_code=404, detail="Petani tidak ditemukan")
         return dict(row)
 
+
 @router.post("/verifikasi_petani/{petani_id}/approve")
 def approve_verifikasi_petani(
     petani_id: int,
@@ -66,7 +70,10 @@ def approve_verifikasi_petani(
     user=Depends(require_role("admin")),
 ):
     with get_cursor(commit=True) as cur:
-        cur.execute("SELECT status_verifikasi FROM profile_petani WHERE user_id = %s", (petani_id,))
+        cur.execute(
+            "SELECT status_verifikasi FROM profile_petani WHERE user_id = %s",
+            (petani_id,),
+        )
         row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Petani tidak ditemukan")
@@ -74,10 +81,11 @@ def approve_verifikasi_petani(
             raise HTTPException(status_code=400, detail="Petani sudah diverifikasi")
         cur.execute(
             "UPDATE profile_petani SET status_verifikasi = TRUE WHERE user_id = %s",
-            (petani_id,)
+            (petani_id,),
         )
         # Audit log placeholder: log who, when, comment
     return {"status": "approved", "comment": req.comment}
+
 
 @router.post("/verifikasi_petani/{petani_id}/reject")
 def reject_verifikasi_petani(
@@ -88,17 +96,25 @@ def reject_verifikasi_petani(
     if not req.reason:
         raise HTTPException(status_code=400, detail="Alasan penolakan wajib diisi")
     with get_cursor(commit=True) as cur:
-        cur.execute("SELECT status_verifikasi FROM profile_petani WHERE user_id = %s", (petani_id,))
+        cur.execute(
+            "SELECT status_verifikasi FROM profile_petani WHERE user_id = %s",
+            (petani_id,),
+        )
         row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Petani tidak ditemukan")
         if row["status_verifikasi"]:
-            raise HTTPException(status_code=400, detail="Petani sudah diverifikasi, tidak bisa ditolak")
+            raise HTTPException(
+                status_code=400, detail="Petani sudah diverifikasi, tidak bisa ditolak"
+            )
         # Optionally, set a rejected status or log only
         # Audit log placeholder: log who, when, reason
     return {"status": "rejected", "reason": req.reason}
 
-@router.get("/verifikasi_hasil_tani", response_model=list[VerifikasiHasilTaniListResponse])
+
+@router.get(
+    "/verifikasi_hasil_tani", response_model=list[VerifikasiHasilTaniListResponse]
+)
 def list_verifikasi_hasil_tani(
     status: Optional[bool] = Query(None),
     date_from: Optional[str] = Query(None),
@@ -121,7 +137,10 @@ def list_verifikasi_hasil_tani(
         params.append(date_to)
     where = f"WHERE {' AND '.join(filters)}" if filters else ""
     sql = f"""
-        SELECT ht.id, ht.petani_id, p.nama_lengkap, ht.jenis_tanaman, ht.jumlah_hasil, ht.satuan, ht.tanggal_panen, ht.status_verifikasi, ht.created_at
+        SELECT ht.id, ht.petani_id, p.nama_lengkap, ht.jenis_tanaman, ht.jumlah_hasil, ht.satuan, 
+               TO_CHAR(ht.tanggal_panen, 'YYYY-MM-DD') AS tanggal_panen, 
+               ht.status_verifikasi, 
+               TO_CHAR(ht.created_at, 'YYYY-MM-DD HH24:MI:SS') AS created_at
         FROM hasil_tani ht
         JOIN profile_petani p ON ht.petani_id = p.user_id
         {where}
@@ -134,10 +153,18 @@ def list_verifikasi_hasil_tani(
         rows = cur.fetchall()
         return [dict(row) for row in rows]
 
-@router.get("/verifikasi_hasil_tani/{laporan_id}", response_model=VerifikasiHasilTaniDetailResponse)
+
+@router.get(
+    "/verifikasi_hasil_tani/{laporan_id}",
+    response_model=VerifikasiHasilTaniDetailResponse,
+)
 def detail_verifikasi_hasil_tani(laporan_id: int, user=Depends(require_role("admin"))):
     sql = """
-        SELECT ht.id, ht.petani_id, p.nama_lengkap, ht.jenis_tanaman, ht.jumlah_hasil, ht.satuan, ht.tanggal_panen, ht.status_verifikasi, ht.created_at, ht.bukti_url
+        SELECT ht.id, ht.petani_id, p.nama_lengkap, ht.jenis_tanaman, ht.jumlah_hasil, ht.satuan, 
+               TO_CHAR(ht.tanggal_panen, 'YYYY-MM-DD') AS tanggal_panen, 
+               ht.status_verifikasi, 
+               TO_CHAR(ht.created_at, 'YYYY-MM-DD HH24:MI:SS') AS created_at, 
+               ht.bukti_url
         FROM hasil_tani ht
         JOIN profile_petani p ON ht.petani_id = p.user_id
         WHERE ht.id = %s
@@ -146,8 +173,11 @@ def detail_verifikasi_hasil_tani(laporan_id: int, user=Depends(require_role("adm
         cur.execute(sql, (laporan_id,))
         row = cur.fetchone()
         if not row:
-            raise HTTPException(status_code=404, detail="Laporan hasil tani tidak ditemukan")
+            raise HTTPException(
+                status_code=404, detail="Laporan hasil tani tidak ditemukan"
+            )
         return dict(row)
+
 
 @router.post("/verifikasi_hasil_tani/{laporan_id}/approve")
 def approve_verifikasi_hasil_tani(
@@ -156,18 +186,23 @@ def approve_verifikasi_hasil_tani(
     user=Depends(require_role("admin")),
 ):
     with get_cursor(commit=True) as cur:
-        cur.execute("SELECT status_verifikasi FROM hasil_tani WHERE id = %s", (laporan_id,))
+        cur.execute(
+            "SELECT status_verifikasi FROM hasil_tani WHERE id = %s", (laporan_id,)
+        )
         row = cur.fetchone()
         if not row:
-            raise HTTPException(status_code=404, detail="Laporan hasil tani tidak ditemukan")
+            raise HTTPException(
+                status_code=404, detail="Laporan hasil tani tidak ditemukan"
+            )
         if row["status_verifikasi"]:
             raise HTTPException(status_code=400, detail="Laporan sudah diverifikasi")
         cur.execute(
             "UPDATE hasil_tani SET status_verifikasi = TRUE WHERE id = %s",
-            (laporan_id,)
+            (laporan_id,),
         )
         # Audit log placeholder: log who, when, comment
     return {"status": "approved", "comment": req.comment}
+
 
 @router.post("/verifikasi_hasil_tani/{laporan_id}/reject")
 def reject_verifikasi_hasil_tani(
@@ -178,12 +213,18 @@ def reject_verifikasi_hasil_tani(
     if not req.reason:
         raise HTTPException(status_code=400, detail="Alasan penolakan wajib diisi")
     with get_cursor(commit=True) as cur:
-        cur.execute("SELECT status_verifikasi FROM hasil_tani WHERE id = %s", (laporan_id,))
+        cur.execute(
+            "SELECT status_verifikasi FROM hasil_tani WHERE id = %s", (laporan_id,)
+        )
         row = cur.fetchone()
         if not row:
-            raise HTTPException(status_code=404, detail="Laporan hasil tani tidak ditemukan")
+            raise HTTPException(
+                status_code=404, detail="Laporan hasil tani tidak ditemukan"
+            )
         if row["status_verifikasi"]:
-            raise HTTPException(status_code=400, detail="Laporan sudah diverifikasi, tidak bisa ditolak")
+            raise HTTPException(
+                status_code=400, detail="Laporan sudah diverifikasi, tidak bisa ditolak"
+            )
         # Optionally, set a rejected status or log only
         # Audit log placeholder: log who, when, reason
     return {"status": "rejected", "reason": req.reason}
@@ -236,7 +277,9 @@ class StokPupuk(BaseModel):
 def list_stok_pupuk_simple(user=Depends(require_role("admin"))):
     """List all fertilizer stocks (simple list for dropdowns)."""
     with get_cursor() as cur:
-        cur.execute("SELECT id, nama_pupuk, jumlah_stok, satuan FROM stok_pupuk ORDER BY nama_pupuk")
+        cur.execute(
+            "SELECT id, nama_pupuk, jumlah_stok, satuan FROM stok_pupuk ORDER BY nama_pupuk"
+        )
         return [dict(row) for row in cur.fetchall()]
 
 
@@ -248,18 +291,23 @@ def approve_persetujuan_pupuk(
 ):
     """Approve a fertilizer request with optional quantity/type adjustment."""
     if req.jumlah_disetujui is None or req.jumlah_disetujui <= 0:
-        raise HTTPException(status_code=400, detail="Jumlah disetujui harus diisi dan > 0")
-    
+        raise HTTPException(
+            status_code=400, detail="Jumlah disetujui harus diisi dan > 0"
+        )
+
     with get_cursor(commit=True) as cur:
         # Get current request details
-        cur.execute("""
+        cur.execute(
+            """
             SELECT p.status, p.jumlah_diminta, p.pupuk_id, s.jumlah_stok 
             FROM pengajuan_pupuk p
             JOIN stok_pupuk s ON s.id = p.pupuk_id
             WHERE p.id = %s
-        """, (permohonan_id,))
+        """,
+            (permohonan_id,),
+        )
         row = cur.fetchone()
-        
+
         if not row:
             raise HTTPException(status_code=404, detail="Permohonan tidak ditemukan")
         if row["status"] != "pending":
@@ -272,18 +320,21 @@ def approve_persetujuan_pupuk(
         if req.pupuk_id and req.pupuk_id != row["pupuk_id"]:
             target_pupuk_id = req.pupuk_id
             # Verify new pupuk exists
-            cur.execute("SELECT id, jumlah_stok FROM stok_pupuk WHERE id = %s", (target_pupuk_id,))
+            cur.execute(
+                "SELECT id, jumlah_stok FROM stok_pupuk WHERE id = %s",
+                (target_pupuk_id,),
+            )
             new_stok = cur.fetchone()
             if not new_stok:
-                 raise HTTPException(status_code=400, detail="Jenis pupuk tidak valid")
+                raise HTTPException(status_code=400, detail="Jenis pupuk tidak valid")
             available_stock = new_stok["jumlah_stok"]
 
         # Validation: Check if amount > available stock
         if req.jumlah_disetujui > available_stock:
-             raise HTTPException(
-                 status_code=400, 
-                 detail=f"Stok tidak mencukupi. Stok tersedia: {available_stock}, diminta disetujui: {req.jumlah_disetujui}"
-             )
+            raise HTTPException(
+                status_code=400,
+                detail=f"Stok tidak mencukupi. Stok tersedia: {available_stock}, diminta disetujui: {req.jumlah_disetujui}",
+            )
 
         cur.execute(
             """
@@ -297,9 +348,9 @@ def approve_persetujuan_pupuk(
         )
         # Optionally, log approval reason
     return {
-        "status": "approved", 
-        "jumlah_disetujui": req.jumlah_disetujui, 
-        "pupuk_id": target_pupuk_id
+        "status": "approved",
+        "jumlah_disetujui": req.jumlah_disetujui,
+        "pupuk_id": target_pupuk_id,
     }
 
 
@@ -313,7 +364,9 @@ def reject_persetujuan_pupuk(
     if not req.alasan:
         raise HTTPException(status_code=400, detail="Alasan penolakan wajib diisi")
     with get_cursor(commit=True) as cur:
-        cur.execute("SELECT status FROM pengajuan_pupuk WHERE id = %s", (permohonan_id,))
+        cur.execute(
+            "SELECT status FROM pengajuan_pupuk WHERE id = %s", (permohonan_id,)
+        )
         row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Permohonan tidak ditemukan")
@@ -351,7 +404,9 @@ class BuatJadwalDistribusiResponse(BaseModel):
     items: List[JadwalPupukItem]
 
 
-@router.post("/buat_jadwal_distribusi_pupuk", response_model=BuatJadwalDistribusiResponse)
+@router.post(
+    "/buat_jadwal_distribusi_pupuk", response_model=BuatJadwalDistribusiResponse
+)
 def buat_jadwal_distribusi_pupuk(
     req: BuatJadwalDistribusiRequest,
     user=Depends(require_role("admin")),
@@ -372,10 +427,15 @@ def buat_jadwal_distribusi_pupuk(
         stok_map = {row["id"]: row["satuan"] for row in cur.fetchall()}
         for it in req.items:
             if it.pupuk_id not in stok_map:
-                raise HTTPException(status_code=400, detail=f"Pupuk id {it.pupuk_id} tidak ditemukan")
+                raise HTTPException(
+                    status_code=400, detail=f"Pupuk id {it.pupuk_id} tidak ditemukan"
+                )
             # If FE provides satuan, ensure matches stok
             if stok_map[it.pupuk_id] and it.satuan != stok_map[it.pupuk_id]:
-                raise HTTPException(status_code=400, detail=f"Satuan tidak sesuai untuk pupuk id {it.pupuk_id}")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Satuan tidak sesuai untuk pupuk id {it.pupuk_id}",
+                )
 
         # Insert event (jadwal tables for consistency)
         cur.execute(
@@ -494,7 +554,9 @@ def detail_jadwal_distribusi_pupuk(
         )
         ev = cur.fetchone()
         if not ev:
-            raise HTTPException(status_code=404, detail="Jadwal distribusi tidak ditemukan")
+            raise HTTPException(
+                status_code=404, detail="Jadwal distribusi tidak ditemukan"
+            )
 
         cur.execute(
             """
@@ -590,12 +652,17 @@ def tambah_stock_pupuk(req: StockChangeRequest, user=Depends(require_role("admin
     if req.jumlah <= 0:
         raise HTTPException(status_code=400, detail="Jumlah harus > 0")
     with get_cursor(commit=True) as cur:
-        cur.execute("SELECT id, jumlah_stok, satuan FROM stok_pupuk WHERE id = %s", (req.pupuk_id,))
+        cur.execute(
+            "SELECT id, jumlah_stok, satuan FROM stok_pupuk WHERE id = %s",
+            (req.pupuk_id,),
+        )
         stok = cur.fetchone()
         if not stok:
             raise HTTPException(status_code=404, detail="Pupuk tidak ditemukan")
         if stok["satuan"] and stok["satuan"] != req.satuan:
-            raise HTTPException(status_code=400, detail="Satuan tidak sesuai dengan stok")
+            raise HTTPException(
+                status_code=400, detail="Satuan tidak sesuai dengan stok"
+            )
 
         cur.execute(
             "UPDATE stok_pupuk SET jumlah_stok = jumlah_stok + %s WHERE id = %s",
@@ -616,14 +683,21 @@ def kurangi_stock_pupuk(req: StockChangeRequest, user=Depends(require_role("admi
     if req.jumlah <= 0:
         raise HTTPException(status_code=400, detail="Jumlah harus > 0")
     with get_cursor(commit=True) as cur:
-        cur.execute("SELECT id, jumlah_stok, satuan FROM stok_pupuk WHERE id = %s", (req.pupuk_id,))
+        cur.execute(
+            "SELECT id, jumlah_stok, satuan FROM stok_pupuk WHERE id = %s",
+            (req.pupuk_id,),
+        )
         stok = cur.fetchone()
         if not stok:
             raise HTTPException(status_code=404, detail="Pupuk tidak ditemukan")
         if stok["satuan"] and stok["satuan"] != req.satuan:
-            raise HTTPException(status_code=400, detail="Satuan tidak sesuai dengan stok")
+            raise HTTPException(
+                status_code=400, detail="Satuan tidak sesuai dengan stok"
+            )
         if stok["jumlah_stok"] < req.jumlah:
-            raise HTTPException(status_code=400, detail="Jumlah pengurangan melebihi stok tersedia")
+            raise HTTPException(
+                status_code=400, detail="Jumlah pengurangan melebihi stok tersedia"
+            )
 
         cur.execute(
             "UPDATE stok_pupuk SET jumlah_stok = jumlah_stok - %s WHERE id = %s",
@@ -681,7 +755,9 @@ def laporan_rekap_harian(
         total_penyaluran_kg = int(cur.fetchone()["total"] or 0)
 
         # penerima manfaat (approx): verified petani count
-        cur.execute("SELECT COUNT(*) AS c FROM profile_petani WHERE status_verifikasi = TRUE")
+        cur.execute(
+            "SELECT COUNT(*) AS c FROM profile_petani WHERE status_verifikasi = TRUE"
+        )
         penerima_manfaat = int(cur.fetchone()["c"])
 
         # permohonan aktif: pending/terverifikasi/dijadwalkan
@@ -792,9 +868,17 @@ def laporan_rekap_bulanan(
         for rec in cur.fetchall():
             tgl = rec["tgl"]
             by_day.setdefault(tgl, {})[rec["nama_pupuk"]] = int(rec["total"])
-        rekap_per_hari = [RekapAggregatedRow(tanggal=t, by_pupuk=vals) for t, vals in sorted(by_day.items())]
+        rekap_per_hari = [
+            RekapAggregatedRow(tanggal=t, by_pupuk=vals)
+            for t, vals in sorted(by_day.items())
+        ]
 
-    return LaporanRekapBulanan(tahun=tahun, bulan=bulan, total_penyaluran_kg=total_penyaluran_kg, rekap_per_hari=rekap_per_hari)
+    return LaporanRekapBulanan(
+        tahun=tahun,
+        bulan=bulan,
+        total_penyaluran_kg=total_penyaluran_kg,
+        rekap_per_hari=rekap_per_hari,
+    )
 
 
 class LaporanRekapTahunan(BaseModel):
@@ -839,9 +923,15 @@ def laporan_rekap_tahunan(
         for rec in cur.fetchall():
             bln = int(rec["bulan"]) if rec["bulan"] is not None else 0
             month_map.setdefault(bln, {})[rec["nama_pupuk"]] = int(rec["total"])
-        rekap_per_bulan = [{"bulan": bln, "by_pupuk": vals} for bln, vals in sorted(month_map.items())]
+        rekap_per_bulan = [
+            {"bulan": bln, "by_pupuk": vals} for bln, vals in sorted(month_map.items())
+        ]
 
-    return LaporanRekapTahunan(tahun=tahun, total_penyaluran_kg=total_penyaluran_kg, rekap_per_bulan=rekap_per_bulan)
+    return LaporanRekapTahunan(
+        tahun=tahun,
+        total_penyaluran_kg=total_penyaluran_kg,
+        rekap_per_bulan=rekap_per_bulan,
+    )
 
 
 @router.get(
@@ -878,7 +968,13 @@ def download_laporan_rekap(
                 (tanggal, tanggal + datetime.timedelta(days=1)),
             )
             for rec in cur.fetchall():
-                writer.writerow([int(rec["jam"]) if rec["jam"] is not None else 0, rec["nama_pupuk"], int(rec["total"])])
+                writer.writerow(
+                    [
+                        int(rec["jam"]) if rec["jam"] is not None else 0,
+                        rec["nama_pupuk"],
+                        int(rec["total"]),
+                    ]
+                )
         elif tipe == "bulanan" and tahun and bulan:
             writer.writerow(["Periode", f"{tahun}-{bulan:02d}"])
             writer.writerow(["Tanggal", "Pupuk", "Jumlah (Kg)"])
@@ -910,13 +1006,23 @@ def download_laporan_rekap(
                 (tahun,),
             )
             for rec in cur.fetchall():
-                writer.writerow([int(rec["bulan"]) if rec["bulan"] is not None else 0, rec["nama_pupuk"], int(rec["total"])])
+                writer.writerow(
+                    [
+                        int(rec["bulan"]) if rec["bulan"] is not None else 0,
+                        rec["nama_pupuk"],
+                        int(rec["total"]),
+                    ]
+                )
         else:
-            raise HTTPException(status_code=400, detail="Parameter tidak valid untuk tipe laporan")
+            raise HTTPException(
+                status_code=400, detail="Parameter tidak valid untuk tipe laporan"
+            )
 
     csv_data = output.getvalue().encode("utf-8")
     from fastapi.responses import Response
 
-    return Response(content=csv_data, media_type="text/csv", headers={
-        "Content-Disposition": "attachment; filename=laporan_rekap.csv"
-    })
+    return Response(
+        content=csv_data,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=laporan_rekap.csv"},
+    )

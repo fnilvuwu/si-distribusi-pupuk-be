@@ -452,7 +452,13 @@ def list_persetujuan_pupuk(user=Depends(require_role("admin"))):
     with get_cursor() as cur:
         cur.execute(sql)
         rows = cur.fetchall()
-        return [dict(row) for row in rows]
+        # Format dates in Python for database-agnostic response
+        result = []
+        for row in rows:
+            row_dict = dict(row)
+            row_dict['created_at'] = format_date_for_api(row_dict['created_at'])
+            result.append(row_dict)
+        return result
 
 
 class StokPupuk(BaseModel):

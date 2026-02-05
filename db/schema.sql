@@ -27,6 +27,15 @@ CREATE TABLE IF NOT EXISTS stok_pupuk (
   satuan VARCHAR NOT NULL
 );
 
+-- Event-based distribution schedule (must be created before pengajuan_pupuk references it)
+CREATE TABLE IF NOT EXISTS jadwal_distribusi_event (
+  id BIGSERIAL PRIMARY KEY,
+  nama_acara VARCHAR NOT NULL,
+  tanggal DATE NOT NULL,
+  lokasi TEXT NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS pengajuan_pupuk (
   id BIGSERIAL PRIMARY KEY,
   petani_id BIGINT NOT NULL REFERENCES profile_petani(user_id) ON DELETE RESTRICT,
@@ -57,15 +66,6 @@ CREATE TABLE IF NOT EXISTS hasil_tani (
   tanggal_panen DATE NOT NULL,
   status_verifikasi BOOLEAN NOT NULL DEFAULT FALSE,
   bukti_url TEXT,
-  created_at TIMESTAMP NOT NULL DEFAULT NOW()
-);
-
--- Event-based distribution schedule
-CREATE TABLE IF NOT EXISTS jadwal_distribusi_event (
-  id BIGSERIAL PRIMARY KEY,
-  nama_acara VARCHAR NOT NULL,
-  tanggal DATE NOT NULL,
-  lokasi TEXT NOT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 

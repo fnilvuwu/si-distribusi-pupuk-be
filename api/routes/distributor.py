@@ -237,7 +237,10 @@ def verify_penerima_pupuk(
         # Handle file upload
         file_path = None
         if bukti_foto and bukti_foto.filename:
-            upload_dir = "tmp/uploads"
+            if os.getenv("VERCEL"):
+                upload_dir = "/tmp/uploads"
+            else:
+                upload_dir = "tmp/uploads"
             os.makedirs(upload_dir, exist_ok=True)
             
             # Generate unique filename

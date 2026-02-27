@@ -63,8 +63,11 @@ app.add_middleware(
 app.include_router(api_router)
 
 # Serve uploaded files
-# Use tmp/uploads for both production and development
-UPLOAD_DIR = Path("tmp/uploads")
+# Use /tmp/uploads for Vercel, else relative tmp/uploads
+if os.getenv("VERCEL"):
+    UPLOAD_DIR = Path("/tmp/uploads")
+else:
+    UPLOAD_DIR = Path("tmp/uploads")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 # Mount the uploads directory

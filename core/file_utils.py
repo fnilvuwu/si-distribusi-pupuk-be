@@ -42,7 +42,10 @@ def save_upload_file(file: UploadFile, subdir: str) -> str:
         )
 
     # Create directory
-    uploads_root = Path("tmp/uploads") / subdir
+    if os.getenv("VERCEL"):
+        uploads_root = Path("/tmp/uploads") / subdir
+    else:
+        uploads_root = Path("tmp/uploads") / subdir
     try:
         uploads_root.mkdir(parents=True, exist_ok=True)
     except Exception as e:

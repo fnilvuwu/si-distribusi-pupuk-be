@@ -164,6 +164,7 @@ class JadwalDistribusiEvent(Base):
     nama_acara = Column(String, nullable=False)
     tanggal = Column(Date, nullable=False)
     lokasi = Column(Text, nullable=False)
+    status = Column(String, nullable=False, default="dijadwalkan")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     items = relationship("JadwalDistribusiItem", back_populates="event")

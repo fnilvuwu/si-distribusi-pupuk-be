@@ -216,7 +216,8 @@ def seed_all_data():
             JadwalDistribusiEvent(
                 nama_acara="Pembagian Pupuk Musim Tanam Musim Hujan",
                 tanggal=date.today() + timedelta(days=10),
-                lokasi="Lapangan Desa Suka Maju"
+                lokasi="Lapangan Desa Suka Maju",
+                status="dijadwalkan"
             ),
             JadwalDistribusiEvent(
                 nama_acara="Pembagian Pupuk Berkualitas Tinggi untuk Petani",
@@ -306,7 +307,7 @@ def seed_all_data():
                 pupuk_id=fertilizers[4].id,
                 jumlah_diminta=500,
                 jumlah_disetujui=450,
-                status="selesai",
+                status="dijadwalkan",
                 alasan="Pemupukan organik untuk keberlanjutan",
                 created_at=datetime.now(),
                 jadwal_event_id=events[1].id
@@ -349,15 +350,15 @@ def seed_all_data():
             ),
             JadwalDistribusi(
                 permohonan_id=permohonan_list[4].id,
-                tanggal_pengiriman=date.today() - timedelta(days=1),
+                tanggal_pengiriman=date.today() + timedelta(days=20),
                 lokasi="Gudang Desa Tani Subur, RT 05 RW 02",
-                status="dikirim"
+                status="dijadwalkan"
             ),
             JadwalDistribusi(
                 permohonan_id=permohonan_list[5].id,
                 tanggal_pengiriman=date.today() - timedelta(days=8),
                 lokasi="Gudang Desa Suka Maju, RT 01 RW 02",
-                status="dikirim"
+                status="selesai"
             ),
         ]
         session.add_all(jadwal_list)
@@ -478,25 +479,11 @@ def seed_all_data():
                 bukti_foto_url="uploads/bukti_pengiriman1.jpg",
                 catatan="Pupuk diterima dalam kondisi baik oleh petani",
                 tanggal_verifikasi=datetime.now() - timedelta(days=7)
-            ),
-            VerifikasiPenerimaPupuk(
-                permohonan_id=permohonan_list[4].id,
-                distributor_id=distributor_users[1].id,
-                bukti_foto_url="uploads/bukti_pengiriman2.jpg",
-                catatan="Pupuk organik diterima dan siap digunakan",
-                tanggal_verifikasi=datetime.now() - timedelta(days=1)
-            ),
-            VerifikasiPenerimaPupuk(
-                permohonan_id=permohonan_list[0].id,
-                distributor_id=distributor_users[0].id,
-                bukti_foto_url="uploads/bukti_pengiriman_dummy.jpg",
-                catatan="Diterima dengan baik",
-                tanggal_verifikasi=datetime.now() - timedelta(days=2, hours=4)
-            ),
+            )
         ]
         session.add_all(verifikasi_list)
         session.commit()
-        print("[OK] Seeded 2 verification records")
+        print("[OK] Seeded 1 verification records")
         
         # Print summary
         print("\n" + "="*60)

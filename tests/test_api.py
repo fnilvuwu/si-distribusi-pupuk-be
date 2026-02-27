@@ -23,7 +23,7 @@ from db import db_base
 from db.db_base import get_db
 from db.models import (
     Base, User, ProfilePetani, ProfileDistributor, ProfileAdmin, 
-    ProfileSuperadmin, StokPupuk, PermohonanPupuk, JadwalDistribusi, HasilTani,
+    ProfileSuperadmin, StokPupuk, PermohonanPupuk, JadwalDistribusi, JadwalDistribusiEvent, HasilTani,
     VerifikasiPenerimaPupuk,
 )
 from core.security import hash_password, create_access_token
@@ -224,15 +224,19 @@ def seed_jadwal_distribusi(test_db: Session, create_test_user_petani, seed_ferti
     test_db.commit()
     test_db.refresh(permohonan)
 
-    jadwal = JadwalDistribusi(
-        permohonan_id=permohonan.id,
-        tanggal_pengiriman=date.today(),
+    jadwal = JadwalDistribusiEvent(
+        nama_acara="Distribusi Jadwal Test",
+        tanggal=date.today(),
         lokasi="Gudang Kios Tani Makmur",
-        status="dikirim",
+        status="dikirim"
     )
     test_db.add(jadwal)
     test_db.commit()
     test_db.refresh(jadwal)
+
+    permohonan.jadwal_event_id = jadwal.id
+    test_db.commit()
+    test_db.refresh(permohonan)
 
     return {
         "profile": profile,
@@ -738,10 +742,9 @@ class TestDistributorEndpoints:
         response = client.post(
             "/distributor/verifikasi-penerima-pupuk",
             headers=auth_headers(distributor_token),
-            json={
+            data={
                 "permohonan_id": permohonan_id,
                 "catatan": "Bukti diterima",
-                "bukti_penerima_url": "http://example.com/bukti.jpg",
             },
         )
         assert response.status_code == 200
@@ -754,10 +757,7 @@ class TestDistributorEndpoints:
         
         # Ensure DB updated
         updated_permohonan = test_db.get(PermohonanPupuk, permohonan_id)
-        updated_jadwal = test_db.get(JadwalDistribusi, seed_jadwal_distribusi["jadwal"].id)
-
         assert updated_permohonan.status == "selesai"
-        assert updated_jadwal.status == "selesai"
 
     def test_riwayat_distribusi(self, distributor_token, seed_jadwal_distribusi_selesai):
         response = client.get(

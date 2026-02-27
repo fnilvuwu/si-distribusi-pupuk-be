@@ -42,7 +42,7 @@ def save_upload_file(file: UploadFile, subdir: str) -> str:
         )
 
     # Create directory
-    uploads_root = Path("uploads") / subdir
+    uploads_root = Path("tmp/uploads") / subdir
     try:
         uploads_root.mkdir(parents=True, exist_ok=True)
     except Exception as e:
@@ -70,7 +70,7 @@ def save_upload_file(file: UploadFile, subdir: str) -> str:
             f.write(content)
 
         logger.info(f"File saved successfully: {out_path}")
-        return f"/files/{subdir}/{out_filename}"
+        return f"/uploads/{subdir}/{out_filename}"
 
     except HTTPException:
         raise

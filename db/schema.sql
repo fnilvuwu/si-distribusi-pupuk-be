@@ -33,8 +33,11 @@ CREATE TABLE IF NOT EXISTS jadwal_distribusi_event (
   nama_acara VARCHAR NOT NULL,
   tanggal DATE NOT NULL,
   lokasi TEXT NOT NULL,
+  status VARCHAR NOT NULL DEFAULT 'dijadwalkan',
   created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE jadwal_distribusi_event ADD COLUMN IF NOT EXISTS status VARCHAR NOT NULL DEFAULT 'dijadwalkan';
 
 CREATE TABLE IF NOT EXISTS pengajuan_pupuk (
   id BIGSERIAL PRIMARY KEY,
@@ -56,6 +59,8 @@ CREATE TABLE IF NOT EXISTS jadwal_distribusi_pupuk (
   lokasi TEXT NOT NULL,
   status TEXT NOT NULL CHECK (status IN ('dijadwalkan', 'dikirim', 'selesai'))
 );
+
+ALTER TABLE jadwal_distribusi_pupuk ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'dijadwalkan';
 
 CREATE TABLE IF NOT EXISTS hasil_tani (
   id BIGSERIAL PRIMARY KEY,

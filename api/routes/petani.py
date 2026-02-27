@@ -73,14 +73,6 @@ def update_profile(
         raise
 
 
-def _kuota_tahunan() -> int:
-    """Get annual fertilizer quota from environment or use default"""
-    try:
-        return int(os.getenv("KUOTA_TAHUNAN", "120"))
-    except (ValueError, TypeError):
-        logger.warning("Invalid KUOTA_TAHUNAN env var, using default 120")
-        return 120
-
 
 @router.get("/petani/pupuk")
 def list_pupuk(user=Depends(require_role("petani"))) -> list:
@@ -125,20 +117,7 @@ def ajukan_permohonan(
         if not profil:
             raise HTTPException(status_code=400, detail="Profil belum diisi")
 
-        # Get remaining quota from completed deliveries
-        total_diterima = db.query(PermohonanPupuk).filter(
-            PermohonanPupuk.petani_id == user["id"],
-            PermohonanPupuk.status == 'selesai'
-        ).all()
-        
-        total_diterima_amount = sum(p.jumlah_disetujui or 0 for p in total_diterima)
-        sisa_kuota = _kuota_tahunan() - total_diterima_amount
-        
-        if jumlah_kg > sisa_kuota:
-            raise HTTPException(
-                status_code=400, 
-                detail=f"Permohonan melebihi sisa kuota. Sisa: {sisa_kuota} kg"
-            )
+
 
         # Check if fertilizer exists
         pupuk = db.query(StokPupuk).filter(
@@ -175,8 +154,7 @@ def ajukan_permohonan(
         return {
             "id": permohonan.id,
             "status": "pending",
-            "created_at": permohonan.created_at,
-            "sisa_kuota": sisa_kuota - jumlah_kg
+            "created_at": permohonan.created_at
         }
     except HTTPException:
         raise
@@ -250,19 +228,13 @@ def konfirmasi_terima(
         raise HTTPException(status_code=500, detail="Error processing confirmation")
 
 
-@router.get("/petani/pengambilan_pupuk/jadwal")
-def jadwal(user=Depends(require_role("petani")), db: Session = Depends(get_db)) -> dict:
-    """Get next fertilizer pickup schedule"""
-    # TODO: Implement jadwal_distribusi query when table is available
-    return {}
-
-
 @router.post("/petani/lapor_hasil_tani")
 def lapor_hasil_tani(
     jenis_tanaman: str = Form(...),
     jumlah_hasil: int = Form(...),
     satuan: str = Form(...),
     tanggal_panen: date = Form(...),
+    bukti_dokumen: Optional[UploadFile] = File(None),
     user=Depends(require_role("petani")),
     db: Session = Depends(get_db)
 ) -> dict:
@@ -275,12 +247,23 @@ def lapor_hasil_tani(
         raise HTTPException(status_code=400, detail="jenis_tanaman wajib diisi")
     
     try:
+        url_bukti_dokumen = None
+        if bukti_dokumen:
+            try:
+                url_bukti_dokumen = save_upload_file(bukti_dokumen, "hasil_tani")
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"File upload error: {str(e)}")
+                raise HTTPException(status_code=400, detail="Gagal mengunggah dokumen bukti")
+
         hasil = HasilTani(
             petani_id=user["id"],
             jenis_tanaman=jenis_tanaman.strip(),
             jumlah_hasil=jumlah_hasil,
             satuan=satuan.strip(),
-            tanggal_panen=tanggal_panen
+            tanggal_panen=tanggal_panen,
+            bukti_url=url_bukti_dokumen
         )
         db.add(hasil)
         db.commit()
@@ -289,8 +272,11 @@ def lapor_hasil_tani(
         return {
             "id": hasil.id,
             "status": "reported",
-            "created_at": hasil.created_at
+            "created_at": hasil.created_at,
+            "bukti_url": hasil.bukti_url
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error reporting harvest: {str(e)}")
         db.rollback()

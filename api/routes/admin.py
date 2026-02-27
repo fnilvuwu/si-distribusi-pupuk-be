@@ -461,6 +461,29 @@ def list_persetujuan_pupuk(user=Depends(require_role("admin"))):
         return result
 
 
+@router.get("/riwayat_persetujuan_pupuk", response_model=List[PermohonanPupukListResponse])
+def riwayat_persetujuan_pupuk(user=Depends(require_role("admin"))):
+    """List all processed fertilizer requests (history)."""
+    sql = """
+        SELECT p.id, prof.nama_lengkap AS nama_petani, s.nama_pupuk, p.pupuk_id, p.jumlah_diminta, p.status, p.created_at,
+               p.jadwal_event_id AS jadwal_id
+        FROM pengajuan_pupuk p
+        JOIN profile_petani prof ON p.petani_id = prof.user_id
+        JOIN stok_pupuk s ON p.pupuk_id = s.id
+        WHERE p.status != 'pending'
+        ORDER BY p.created_at DESC
+    """
+    with get_cursor() as cur:
+        cur.execute(sql)
+        rows = cur.fetchall()
+        result = []
+        for row in rows:
+            row_dict = dict(row)
+            row_dict['created_at'] = format_date_for_api(row_dict['created_at'])
+            result.append(row_dict)
+        return result
+
+
 class StokPupuk(BaseModel):
     id: int
     nama_pupuk: str
@@ -694,7 +717,7 @@ def reject_persetujuan_pupuk(
         if row["status"] != "pending":
             raise HTTPException(status_code=400, detail="Permohonan sudah diproses")
         cur.execute(
-            "UPDATE pengajuan_pupuk SET status = 'selesai', alasan_pengajuan = %s WHERE id = %s",
+            "UPDATE pengajuan_pupuk SET status = 'ditolak', alasan_pengajuan = %s WHERE id = %s",
             (req.alasan, permohonan_id),
         )
         # Optionally, log rejection reason
@@ -722,6 +745,8 @@ class BuatJadwalDistribusiResponse(BaseModel):
     nama_acara: str
     tanggal: datetime.date
     lokasi: str
+    status: str
+    created_at: str
     items: List[JadwalPupukItem]
 
 
@@ -758,15 +783,19 @@ def buat_jadwal_distribusi_pupuk(
                     detail=f"Satuan tidak sesuai untuk pupuk id {it.pupuk_id}",
                 )
 
-        # Insert event without RETURNING (SQLite-compatible)
+        # Insert event with RETURNING to get created_at
         cur.execute(
             """
-            INSERT INTO jadwal_distribusi_event (nama_acara, tanggal, lokasi)
-            VALUES (%s, %s, %s)
+            INSERT INTO jadwal_distribusi_event (nama_acara, tanggal, lokasi, status)
+            VALUES (%s, %s, %s, 'dijadwalkan')
+            RETURNING id, created_at, status
             """,
             (req.nama_acara, req.tanggal, req.lokasi),
         )
-        event_id = cur.lastrowid
+        row = cur.fetchone()
+        event_id = row["id"]
+        created_at = row["created_at"]
+        status = row["status"]
 
         # Insert items
         for it in req.items:
@@ -783,6 +812,8 @@ def buat_jadwal_distribusi_pupuk(
         "nama_acara": req.nama_acara,
         "tanggal": req.tanggal,
         "lokasi": req.lokasi,
+        "status": status,
+        "created_at": format_date_for_api(created_at),
         "items": req.items,
     }
 
@@ -799,6 +830,8 @@ class AcaraDistribusiResponse(BaseModel):
     nama_acara: str
     tanggal: datetime.date
     lokasi: str
+    status: str
+    created_at: str
     items: List[AcaraDistribusiItemResponse]
 
 
@@ -816,7 +849,7 @@ def list_jadwal_distribusi_pupuk(
     with get_cursor() as cur:
         cur.execute(
             """
-            SELECT id, nama_acara, tanggal, lokasi
+            SELECT id, nama_acara, tanggal, lokasi, status, created_at
             FROM jadwal_distribusi_event
             ORDER BY tanggal DESC, id DESC
             LIMIT %s OFFSET %s
@@ -852,6 +885,8 @@ def list_jadwal_distribusi_pupuk(
                     "nama_acara": ev["nama_acara"],
                     "tanggal": ev["tanggal"],
                     "lokasi": ev["lokasi"],
+                    "status": ev["status"],
+                    "created_at": format_date_for_api(ev["created_at"]),
                     "items": items,
                 }
             )
@@ -869,7 +904,7 @@ def detail_jadwal_distribusi_pupuk(
     """Detail satu acara distribusi pupuk dengan itemnya."""
     with get_cursor() as cur:
         cur.execute(
-            "SELECT id, nama_acara, tanggal, lokasi FROM jadwal_distribusi_event WHERE id = %s",
+            "SELECT id, nama_acara, tanggal, lokasi, status, created_at FROM jadwal_distribusi_event WHERE id = %s",
             (jadwal_id,),
         )
         ev = cur.fetchone()
@@ -902,8 +937,64 @@ def detail_jadwal_distribusi_pupuk(
             "nama_acara": ev["nama_acara"],
             "tanggal": ev["tanggal"],
             "lokasi": ev["lokasi"],
+            "status": ev["status"],
+            "created_at": format_date_for_api(ev["created_at"]),
             "items": items,
         }
+
+@router.patch("/jadwal_distribusi_pupuk/{jadwal_id}/selesai")
+def selesaikan_jadwal_distribusi_pupuk(
+    jadwal_id: int,
+    user=Depends(require_role("admin")),
+):
+    """Selesaikan acara distribusi pupuk."""
+    with get_cursor(commit=True) as cur:
+        cur.execute(
+            "SELECT id, status FROM jadwal_distribusi_event WHERE id = %s",
+            (jadwal_id,),
+        )
+        ev = cur.fetchone()
+        if not ev:
+            raise HTTPException(status_code=404, detail="Jadwal distribusi tidak ditemukan")
+        if ev["status"] == "selesai":
+            raise HTTPException(status_code=400, detail="Jadwal distribusi sudah selesai")
+
+        cur.execute(
+            "UPDATE jadwal_distribusi_event SET status = 'selesai' WHERE id = %s",
+            (jadwal_id,),
+        )
+        
+        # Also could update related pengajuan_pupuk status if needed, but not specified
+        return {"status": "success", "message": "Jadwal distribusi berhasil diselesaikan"}
+
+@router.get("/jadwal_distribusi_pupuk/{jadwal_id}/penerima")
+def daftar_penerima_pupuk_event(
+    jadwal_id: int,
+    user=Depends(require_role("admin")),
+):
+    """Melihat daftar penerima pupuk di suatu event."""
+    with get_cursor() as cur:
+        cur.execute(
+            "SELECT id FROM jadwal_distribusi_event WHERE id = %s",
+            (jadwal_id,),
+        )
+        if not cur.fetchone():
+            raise HTTPException(status_code=404, detail="Jadwal distribusi tidak ditemukan")
+
+        cur.execute(
+            """
+            SELECT p.id as permohonan_id, prof.nama_lengkap AS nama_petani, 
+                   s.nama_pupuk, p.jumlah_disetujui, p.status
+            FROM pengajuan_pupuk p
+            JOIN profile_petani prof ON p.petani_id = prof.user_id
+            JOIN stok_pupuk s ON p.pupuk_id = s.id
+            WHERE p.jadwal_event_id = %s
+            ORDER BY prof.nama_lengkap ASC
+            """,
+            (jadwal_id,),
+        )
+        rows = cur.fetchall()
+        return [dict(r) for r in rows]
 
 
 @router.get("/list_event_jadwal_pengambilan_pupuk", response_model=List[AcaraDistribusiResponse])

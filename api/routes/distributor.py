@@ -15,7 +15,7 @@ router = APIRouter()
 # ============== Schemas ==============
 class JadwalDistribusiResponse(BaseModel):
     id: int
-    permohonan_id: int
+    nama_acara: str
     tanggal_pengiriman: str
     lokasi: str
     status: str
@@ -35,16 +35,12 @@ class PenerimaItemResponse(BaseModel):
 
 class JadwalDetailResponse(BaseModel):
     jadwal_id: int
-    permohonan_id: int
+    nama_acara: str
     tanggal_pengiriman: str
     lokasi: str
     jadwal_status: str
     tahap: Optional[str] = None
     penerima_list: list[PenerimaItemResponse]
-
-    permohonan_id: int
-    bukti_penerima_url: Optional[str] = None
-    catatan: Optional[str] = None
 
 class VerifikasiPenerimaPupukResponse(BaseModel):
     message: str
@@ -54,7 +50,7 @@ class VerifikasiPenerimaPupukResponse(BaseModel):
 
 class RiwayatDistribusiItem(BaseModel):
     jadwal_id: int
-    permohonan_id: int
+    nama_acara: str
     tanggal_pengiriman: str
     lokasi: str
     status: str
@@ -86,11 +82,11 @@ def get_jadwal_distribusi(
         query = """
             SELECT 
                 j.id,
-                j.permohonan_id,
-                CAST(j.tanggal_pengiriman AS TEXT) AS tanggal_pengiriman,
+                j.nama_acara,
+                CAST(j.tanggal AS TEXT) AS tanggal_pengiriman,
                 j.lokasi,
                 j.status
-            FROM jadwal_distribusi_pupuk j
+            FROM jadwal_distribusi_event j
             WHERE 1=1
         """
         params = []
@@ -100,14 +96,14 @@ def get_jadwal_distribusi(
             params.append(f"%{lokasi}%")
 
         if tanggal:
-            query += " AND j.tanggal_pengiriman = %s"
+            query += " AND j.tanggal = %s"
             params.append(tanggal)
 
         if status:
             query += " AND j.status = %s"
             params.append(status)
 
-        query += " ORDER BY j.tanggal_pengiriman DESC"
+        query += " ORDER BY j.tanggal DESC"
 
         cur.execute(query, params)
         rows = cur.fetchall()
@@ -115,7 +111,7 @@ def get_jadwal_distribusi(
         return [
             {
                 "id": row["id"],
-                "permohonan_id": row["permohonan_id"],
+                "nama_acara": row["nama_acara"],
                 "tanggal_pengiriman": str(row["tanggal_pengiriman"]),
                 "lokasi": row["lokasi"],
                 "status": row["status"],
@@ -136,11 +132,11 @@ def get_jadwal_detail(
         cur.execute("""
             SELECT 
                 j.id,
-                j.permohonan_id,
-                CAST(j.tanggal_pengiriman AS TEXT) AS tanggal_pengiriman,
+                j.nama_acara,
+                CAST(j.tanggal AS TEXT) AS tanggal_pengiriman,
                 j.lokasi,
                 j.status
-            FROM jadwal_distribusi_pupuk j
+            FROM jadwal_distribusi_event j
             WHERE j.id = %s
         """, [jadwal_id])
         
@@ -164,10 +160,10 @@ def get_jadwal_detail(
             JOIN profile_petani pf ON pf.user_id = pp.petani_id
             JOIN stok_pupuk sp ON sp.id = pp.pupuk_id
             LEFT JOIN verifikasi_penerima_pupuk v ON v.permohonan_id = pp.id
-            WHERE pp.id = %s
+            WHERE pp.jadwal_event_id = %s
             GROUP BY pp.id, pf.nama_lengkap, pf.nik, sp.nama_pupuk, pp.jumlah_disetujui, pp.jumlah_diminta, sp.satuan, pf.no_hp, pp.status
             ORDER BY pf.nama_lengkap
-        """, [jadwal_row["permohonan_id"]])
+        """, [jadwal_id])
         
         penerima_rows = cur.fetchall()
         
@@ -189,7 +185,7 @@ def get_jadwal_detail(
         
         return {
             "jadwal_id": jadwal_row["id"],
-            "permohonan_id": jadwal_row["permohonan_id"],
+            "nama_acara": jadwal_row["nama_acara"],
             "tanggal_pengiriman": jadwal_row["tanggal_pengiriman"],
             "lokasi": jadwal_row["lokasi"],
             "jadwal_status": jadwal_row["status"],
@@ -240,17 +236,20 @@ def verify_penerima_pupuk(
         
         # Handle file upload
         file_path = None
-        if bukti_foto:
-            upload_dir = "uploads"
+        if bukti_foto and bukti_foto.filename:
+            upload_dir = "tmp/uploads"
             os.makedirs(upload_dir, exist_ok=True)
             
             # Generate unique filename
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"bukti_{permohonan_id}_{timestamp}_{bukti_foto.filename}"
-            file_path = os.path.join(upload_dir, filename)
+            local_file_path = os.path.join(upload_dir, filename)
             
-            with open(file_path, "wb") as buffer:
+            with open(local_file_path, "wb") as buffer:
                 shutil.copyfileobj(bukti_foto.file, buffer)
+
+            # Store the URL path in DB
+            file_path = f"/uploads/{filename}"
 
         # Check if already verified to prevent duplicates
         cur.execute("SELECT id FROM verifikasi_penerima_pupuk WHERE permohonan_id = %s", (permohonan_id,))
@@ -315,15 +314,15 @@ def get_riwayat_distribusi_pupuk(
         query = """
             SELECT 
                 j.id AS jadwal_id,
-                j.permohonan_id,
-                CAST(j.tanggal_pengiriman AS TEXT) AS tanggal_pengiriman,
+                j.nama_acara,
+                CAST(j.tanggal AS TEXT) AS tanggal_pengiriman,
                 j.lokasi,
                 j.status,
                 COALESCE(COUNT(v.id), 0) AS total_penerima_terverifikasi,
                 COALESCE(SUM(pp.jumlah_disetujui), 0) AS total_volume,
-                sp.satuan
-            FROM jadwal_distribusi_pupuk j
-            JOIN pengajuan_pupuk pp ON pp.id = j.permohonan_id
+                MAX(sp.satuan) AS satuan
+            FROM jadwal_distribusi_event j
+            JOIN pengajuan_pupuk pp ON pp.jadwal_event_id = j.id
             JOIN stok_pupuk sp ON sp.id = pp.pupuk_id
             LEFT JOIN verifikasi_penerima_pupuk v ON v.permohonan_id = pp.id
             WHERE 1=1
@@ -338,19 +337,19 @@ def get_riwayat_distribusi_pupuk(
             query += " AND j.status = 'selesai'"
 
         if start_date:
-            query += " AND j.tanggal_pengiriman >= %s"
+            query += " AND j.tanggal >= %s"
             params.append(start_date)
 
         if end_date:
-            query += " AND j.tanggal_pengiriman <= %s"
+            query += " AND j.tanggal <= %s"
             params.append(end_date)
 
         if lokasi:
             query += " AND UPPER(j.lokasi) LIKE UPPER(%s)"
             params.append(f"%{lokasi}%")
 
-        query += " GROUP BY j.id, j.permohonan_id, j.tanggal_pengiriman, j.lokasi, j.status, sp.satuan"
-        query += " ORDER BY j.tanggal_pengiriman DESC"
+        query += " GROUP BY j.id, j.nama_acara, j.tanggal, j.lokasi, j.status"
+        query += " ORDER BY j.tanggal DESC"
 
         cur.execute(query, params)
         rows = cur.fetchall()
@@ -358,7 +357,7 @@ def get_riwayat_distribusi_pupuk(
         return [
             {
                 "jadwal_id": row["jadwal_id"],
-                "permohonan_id": row["permohonan_id"],
+                "nama_acara": row["nama_acara"],
                 "tanggal_pengiriman": row["tanggal_pengiriman"],
                 "lokasi": row["lokasi"],
                 "status": row["status"],
@@ -392,15 +391,14 @@ def update_status_jadwal(
 
     with get_cursor(commit=True) as cur:
         # Get jadwal details
-        cur.execute("SELECT id, permohonan_id, status FROM jadwal_distribusi_pupuk WHERE id = %s", [jadwal_id])
+        cur.execute("SELECT id, status FROM jadwal_distribusi_event WHERE id = %s", [jadwal_id])
         jadwal = cur.fetchone()
         
         if not jadwal:
             raise HTTPException(status_code=404, detail="Jadwal distribusi not found")
 
         current_status = jadwal["status"]
-        permohonan_id = jadwal["permohonan_id"]
-        print(f"DEBUG: Found jadwal {jadwal_id}. Current status: {current_status}, Permohonan ID: {permohonan_id}")
+        print(f"DEBUG: Found jadwal {jadwal_id}. Current status: {current_status}")
 
         # Logic transition
         target_db_status = None
@@ -417,15 +415,13 @@ def update_status_jadwal(
             
             # Update jadwal
             cur.execute(
-                "UPDATE jadwal_distribusi_pupuk SET status = %s WHERE id = %s",
+                "UPDATE jadwal_distribusi_event SET status = %s WHERE id = %s",
                 (target_db_status, jadwal_id)
             )
-            # Update parent permohonan status to match logic if needed, 
-            # usually permohonan follows jadwal status or vice versa.
-            # Let's update permohonan status too to keep sync
+            # Update parent permohonan status to match logic if needed
             cur.execute(
-                "UPDATE pengajuan_pupuk SET status = %s WHERE id = %s",
-                (target_db_status, permohonan_id)
+                "UPDATE pengajuan_pupuk SET status = %s WHERE jadwal_event_id = %s AND status = 'dijadwalkan'",
+                (target_db_status, jadwal_id)
             )
 
         elif new_status == "selesai":
@@ -436,101 +432,17 @@ def update_status_jadwal(
             if current_status != "dikirim": # 'dikirim' is the DB state for 'mulai'
                 raise HTTPException(status_code=400, detail=f"Hanya bisa selesai jika status saat ini 'mulai' (sedang dikirim). Status sekarang: {current_status}")
             
-            # Validate all recipients are done
-            # We need to check INDIVIDUAL recipients if permohonan_id represents a GROUP request or Single?
-            # Schema seems to link Jadwal -> 1 Permohonan. 
-            # But get_jadwal_detail joins pengajuan_pupuk on id. 
-            # Wait, PermohonanPupuk is single per user. 
-            # ONE Jadwal per Permohonan?
-            # Let's re-read models: JadwalDistribusi has permohonan_id. One-to-one or Many-to-one?
-            # relationship in PermohonanPupuk: jadwal_distribusi = relationship(..., uselist=False) -> One-to-One.
-            # So one Jadwal is for one Permohonan (which is one Petani + one Pupuk).
+            # Checking if all petani in this event have 'selesai', 'ditolak', or 'dibatalkan'
+            cur.execute("SELECT count(*) as unresolved FROM pengajuan_pupuk WHERE jadwal_event_id = %s AND status NOT IN ('selesai', 'ditolak', 'dibatalkan')", [jadwal_id])
+            unresolved = cur.fetchone()["unresolved"]
             
-            # WAIT. The user prompt says "hanya bisa diselesaikan jika semua petani telah selesai".
-            # This implies a Jadwal might cover MULTIPLE farmers?
-            # Looking at `models.py`:
-            # `JadwalDistribusiEvent` -> has `items` (JadwalDistribusiItem) -> linked to pupuk.
-            # BUT `JadwalDistribusi` (used in distributor.py) links to `PermohonanPupuk`.
-            # `PermohonanPupuk` is for ONE Petani.
-            
-            # HOWEVER, `get_jadwal_detail` query does:
-            # `SELECT ... FROM pengajuan_pupuk pp WHERE pp.id = %s` (using jadwal_row["permohonan_id"])
-            # It seems the `JadwalDistribusi` table is legacy or specific 1-to-1?
-            
-            # Let's look at `get_jadwal_detail` again in `distributor.py`.
-            # querying `pengajuan_pupuk` by `id`.
-            # If `PermohonanPupuk` is 1 row per request, then "all farmers" implies the endpoint might be for `JadwalDistribusiEvent`?
-            # BUT `distributor.py` uses `JadwalDistribusi` table.
-            
-            # Maybe `permohonan_id` in `JadwalDistribusi` refers to a Group? No, `PermohonanPupuk` has `petani_id`.
-            # Let's re-read the User Request:
-            # { "id": 1, "permohonan_id": 1, ... } list of `JadwalDistribusi`.
-            # And user says: "dijawab semua daftar petani penerimanya".
-            # This implies `permohonan_id` might be confusingly named or I am missing something.
-            
-            # Let's check `get_jadwal_detail` logic:
-            # It selects ONE permohonan.
-            # `SELECT ... FROM pengajuan_pupuk pp ... WHERE pp.id = %s`.
-            # So it returns ONE recipient list (size 1?).
-            # BUT `penerima_rows` is fetchall().
-            
-            # Is it possible multiple farmers share `permohonan_id`? 
-            # `id` is primary key of `pengajuan_pupuk`. So NO.
-            
-            # Wait, look at `get_jadwal_detail`...
-            # `JOIN profile_petani ... JOIN stok_pupuk ...`
-            # It joins on `pp.id`.
-            # Unless `get_jadwal_detail` is somehow retrieving multiple rows?
-            
-            # AH! Maybe existing codebase is confusing `permohonan_id` with `jadwal_id` or something?
-            # Or maybe `distributor.py` is working with the `JadwalDistribusi` model which links to ONE `PermohonanPupuk`.
-            
-            # User Prompt: "status": "dijadwalkan", jadi distributor hanya mampu mengubah statusnya dari dijadwalkan ke mulai lalu ke selesaikan, 
-            # hanya bisa diselesaikan jika semua petani telah selesai ataupun ditolak tapi harus dijawab semua daftar petani penerimanya
-            
-            # IF this `JadwalDistribusi` is 1-to-1 with `PermohonanPupuk`, then "semua petani" is just "the one petani".
-            # UNLESS `JadwalDistribusi` is supposed to be for a group?
-            
-            # Let's proceed assuming existing structure: One Jadwal = One Permohonan = One Petani.
-            # So "semua petani" just means "check the status of the associated permohonan".
-            # IF there is a separate "Event" based distribution (like `JadwalDistribusiEvent` which has items), 
-            # that is in `admin.py`. `distributor.py` seems to use `JadwalDistribusi` (the 1-to-1 mapping).
-            
-            # I will stick to checking the status of the linked `PermohonanPupuk`.
-            # If the user intended the "Event" one, they would have likely pointed to `JadwalDistribusiEvent`.
-            # `distributor.py` imports `JadwalDistribusi`.
-            
-            # Wait, `get_jadwal_detail` implementation in `distributor.py` returns `penerima_list` as a list.
-            # `cur.fetchall()` implies multiple rows could exist.
-            # But the query is `WHERE pp.id = %s`. `pp.id` is PK. 
-            # So it will always be 1 or 0 rows.
-            # So `penerima_list` will have size 1.
-            
-            # SO: "Semua petani" = "The single petani".
-            # Checking if `pp.status` is 'selesai' or 'ditolak'.
-            
-            # Query status of permohonan
-            cur.execute("SELECT status FROM pengajuan_pupuk WHERE id = %s", [permohonan_id])
-            
-            # Wait, if we moved to `dikirim`, `pengajuan_pupuk` status is `dikirim`.
-            # The 'petani' is finished if `verifikasi_penerima_pupuk` happened?
-            # When `verify_penerima_pupuk` is called (POST verify), it updates `pengajuan_pupuk` to 'selesai'.
-            
-            # So here we just verify `pengajuan_pupuk.status` is 'selesai'.
-            # And enable setting `JadwalDistribusi.status` to 'selesai'.
-            
-            pm = cur.fetchone()
-            if not pm:
-                 raise HTTPException(status_code=404, detail="Permohonan linked to jadwal not found")
-            
-            pm_status = pm["status"]
-            if pm_status not in ['selesai', 'ditolak']:
-                raise HTTPException(status_code=400, detail="Tidak dapat menyelesaikan jadwal. Petani belum selesai/ditolak.")
+            if unresolved > 0:
+                raise HTTPException(status_code=400, detail="Tidak dapat menyelesaikan jadwal. Masih ada petani yang belum selesai/ditolak.")
                 
             target_db_status = "selesai"
             
             cur.execute(
-                "UPDATE jadwal_distribusi_pupuk SET status = %s WHERE id = %s",
+                "UPDATE jadwal_distribusi_event SET status = %s WHERE id = %s",
                 (target_db_status, jadwal_id)
             )
 

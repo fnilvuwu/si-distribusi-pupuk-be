@@ -52,10 +52,26 @@ class DeleteUserResponse(BaseModel):
 
 @router.get("/metrics")
 def metrics(user=Depends(require_role("super_admin"))):
+    with get_cursor() as cur:
+        # Total users
+        cur.execute("SELECT COUNT(id) as total FROM users")
+        row = cur.fetchone()
+        total_users = row["total"] if row else 0
+        
+        # Total pengajuan pupuk
+        cur.execute("SELECT COUNT(id) as total FROM pengajuan_pupuk")
+        row = cur.fetchone()
+        total_pengajuan = row["total"] if row else 0
+        
+        # Total event distribusi
+        cur.execute("SELECT COUNT(id) as total FROM jadwal_distribusi_event")
+        row = cur.fetchone()
+        total_event = row["total"] if row else 0
+        
     return {
-        "uptime": "99.9%",
-        "total_users": 1284,
-        "error_logs": 2
+        "total_users": total_users,
+        "total_pengajuan": total_pengajuan,
+        "total_event_distribusi": total_event
     }
 
 @router.get("/users", response_model=list[UserListResponse])
